@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "DY Monitor",
+  "version": "4.0.0",
+  "description": "Douyin Shop Monitor",
+  "action": {
+    "default_title": "DY Monitor",
+    "default_popup": "popup/popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://compass.douyin.com/*",
+        "https://compass.jinritemai.com/*"
+      ],
+      "js": [
+        "config.js",
+        "content/standard-categories.js",
+        "content/runtime.js",
+        "content/silent-capture.js",
+        "content/panel.js"
+      ],
+      "run_at": "document_end"
+    }
+  ],
+  "permissions": ["storage", "downloads"],
+  "host_permissions": [
+    "https://compass.douyin.com/*",
+    "https://compass.jinritemai.com/*",
+    "http://localhost:4318/*"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["content/page-api-hook.js"],
+      "matches": [
+        "https://compass.douyin.com/*",
+        "https://compass.jinritemai.com/*"
+      ]
+    }
+  ]
+}

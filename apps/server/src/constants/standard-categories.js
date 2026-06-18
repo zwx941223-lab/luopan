@@ -1,0 +1,68 @@
+export const STANDARD_CATEGORIES = [
+  { id: "1000001467", name: "玩具乐器/玩具", level1: "玩具乐器", level2: "玩具" },
+  { id: "1000005222", name: "玩具乐器/乐器及配件", level1: "玩具乐器", level2: "乐器及配件" },
+  { id: "1000003282", name: "服饰内衣/服装", level1: "服饰内衣", level2: "服装" },
+  { id: "1000003462", name: "个护家清/个人护理", level1: "个护家清", level2: "个人护理" },
+  { id: "1000004647", name: "个护家清/家清纸品", level1: "个护家清", level2: "家清纸品" },
+  { id: "1000001142", name: "智能家居/五金/工具", level1: "智能家居", level2: "五金/工具" },
+  { id: "1000002719", name: "智能家居/电子/电工", level1: "智能家居", level2: "电子/电工" },
+  { id: "1000004471", name: "智能家居/家具", level1: "智能家居", level2: "家具" },
+  { id: "1000004472", name: "智能家居/家装灯饰光源", level1: "智能家居", level2: "家装灯饰光源" },
+  { id: "1000004788", name: "智能家居/家装建材", level1: "智能家居", level2: "家装建材" },
+  { id: "1000005069", name: "智能家居/居家日用", level1: "智能家居", level2: "居家日用" },
+  { id: "1000006002", name: "智能家居/汽车用品", level1: "智能家居", level2: "汽车用品" },
+  { id: "1000007248", name: "智能家居/整车及配件", level1: "智能家居", level2: "整车及配件" },
+  { id: "1000007490", name: "智能家居/摩托车/电动车/自行车用品", level1: "智能家居", level2: "摩托车/电动车/自行车用品" },
+  { id: "1000009092", name: "智能家居/餐饮厨具", level1: "智能家居", level2: "餐饮厨具" },
+  { id: "1000001991", name: "生鲜/水果蔬菜", level1: "生鲜", level2: "水果蔬菜" },
+  { id: "1000003801", name: "生鲜/海鲜水产", level1: "生鲜", level2: "海鲜水产" },
+  { id: "1000006263", name: "生鲜/肉禽蛋品", level1: "生鲜", level2: "肉禽蛋品" },
+  { id: "1000009089", name: "生鲜/冷冻/冷藏制品", level1: "生鲜", level2: "冷冻/冷藏制品" },
+  { id: "1000002395", name: "美妆/彩妆香水", level1: "美妆", level2: "彩妆香水" },
+  { id: "1000002529", name: "母婴宠物/宠物生活", level1: "母婴宠物", level2: "宠物生活" },
+  { id: "1000005784", name: "母婴宠物/母婴用品", level1: "母婴宠物", level2: "母婴用品" },
+  { id: "1000005603", name: "鲜花园艺/农资园艺", level1: "鲜花园艺", level2: "农资园艺" },
+  { id: "1000000724", name: "食品饮料/休闲食品", level1: "食品饮料", level2: "休闲食品" },
+  { id: "1000001823", name: "食品饮料/水饮冲调", level1: "食品饮料", level2: "水饮冲调" },
+  { id: "1000009090", name: "食品饮料/粮油干货/方便速食", level1: "食品饮料", level2: "粮油干货/方便速食" },
+  { id: "1000000025", name: "3C数码家电/元器件", level1: "3C数码家电", level2: "元器件" },
+  { id: "1000002394", name: "3C数码家电/办公设备及耗材", level1: "3C数码家电", level2: "办公设备及耗材" },
+  { id: "1000003143", name: "3C数码家电/电器", level1: "3C数码家电", level2: "电器" },
+  { id: "1000007020", name: "3C数码家电/3C数码及配件", level1: "3C数码家电", level2: "3C数码及配件" },
+  { id: "1000001648", name: "图书教育/文教文化用品", level1: "图书教育", level2: "文教文化用品" },
+  { id: "1000006345", name: "图书教育/书籍/杂志/报纸", level1: "图书教育", level2: "书籍/杂志/报纸" },
+  { id: "1000000957", name: "鞋靴箱包/鞋靴", level1: "鞋靴箱包", level2: "鞋靴" },
+  { id: "1000000958", name: "鞋靴箱包/箱包", level1: "鞋靴箱包", level2: "箱包" },
+  { id: "1000000024", name: "运动户外/运动休闲用品", level1: "运动户外", level2: "运动休闲用品" },
+  { id: "1000004259", name: "运动户外/户外装备", level1: "运动户外", level2: "户外装备" },
+  { id: "1000000026", name: "钟表配饰/钟表眼镜", level1: "钟表配饰", level2: "钟表眼镜" },
+  { id: "1000001822", name: "钟表配饰/时尚饰品", level1: "钟表配饰", level2: "时尚饰品" },
+  { id: "1000001468", name: "珠宝文玩/文玩收藏", level1: "珠宝文玩", level2: "文玩收藏" },
+  { id: "1000005604", name: "珠宝文玩/民俗工艺/非遗", level1: "珠宝文玩", level2: "民俗工艺/非遗" },
+  { id: "1000007740", name: "珠宝文玩/黄金珠宝玉石", level1: "珠宝文玩", level2: "黄金珠宝玉石" },
+  { id: "1000007741", name: "珠宝文玩/工艺品", level1: "珠宝文玩", level2: "工艺品" },
+  { id: "1000004960", name: "酒类/酒类", level1: "酒类", level2: "酒类" },
+  { id: "1000002718", name: "滋补保健/传统滋补", level1: "滋补保健", level2: "传统滋补" },
+  { id: "1000009091", name: "滋补保健/营养保健/特医食品", level1: "滋补保健", level2: "营养保健/特医食品" },
+  { id: "1000003615", name: "原料包装/工业品", level1: "原料包装", level2: "工业品" }
+];
+
+export function normalizeCategoryName(value) {
+  return String(value || "").replace(/\s+/g, "").trim();
+}
+
+export function findStandardCategoryByName(value) {
+  const normalized = normalizeCategoryName(value);
+  if (!normalized) {
+    return null;
+  }
+  return STANDARD_CATEGORIES.find((category) => normalizeCategoryName(category.name) === normalized) || null;
+}
+
+export function findStandardCategoryById(value) {
+  const id = String(value || "").trim();
+  if (!id) {
+    return null;
+  }
+  return STANDARD_CATEGORIES.find((category) => category.id === id) || null;
+}

@@ -1,0 +1,1199 @@
+import { nanoid } from "nanoid";
+import { readStore, updateStore } from "../data/store.js";
+import { config } from "../config.js";
+import { getNowIso, isAfter, subtractHours, toHourKey } from "../utils/time.js";
+import {
+  STANDARD_CATEGORIES,
+  findStandardCategoryById,
+  findStandardCategoryByName
+} from "../constants/standard-categories.js";
+
+const SHORT_VIDEO_RANKING = "\u77ed\u89c6\u9891\u699c";
+
+function isObjectPlaceholderText(value) {
+  return String(value || "").replace(/\s+/g, "").toLowerCase() === "[objectobject]";
+}
+
+function normalizeRange(value) {
+  if (value && typeof value === "object") {
+    const candidates = [
+      value.value,
+      value.val,
+      value.range,
+      value.rangeValue,
+      value.range_value,
+      value.showValue,
+      value.show_value,
+      value.displayValue,
+      value.display_value,
+      value.text,
+      value.label,
+      value.desc
+    ];
+    const direct = candidates.find((item) => item != null && String(item).trim());
+    if (direct != null) {
+      return normalizeRange(direct);
+    }
+
+    const min = value.min ?? value.lower ?? value.start ?? value.from;
+    const max = value.max ?? value.upper ?? value.end ?? value.to;
+    if (min != null || max != null) {
+      return normalizeRange(`${min ?? ""}-${max ?? ""}`);
+    }
+
+    return "";
+  }
+
+  if (value == null) {
+    return "";
+  }
+
+  const text = String(value).trim();
+  if (/^(https?:)?\/\//i.test(text) || /^www\./i.test(text)) {
+    return "";
+  }
+  if (/^(true|false)$/i.test(text.replace(/\s+/g, ""))) {
+    return "";
+  }
+  if (isObjectPlaceholderText(text)) {
+    return "";
+  }
+  const compact = text.replace(/\s+/g, "");
+  const withoutLabel = compact.replace(
+    /^(?:短视频)?(?:用户)?(?:支付金额|点击次数|成交件数|支付区间|点击区间|成交区间|支付|点击|成交)/,
+    ""
+  );
+  if (withoutLabel !== compact) {
+    return normalizeRange(withoutLabel);
+  }
+  if (compact.length > 28 && /[\u4e00-\u9fa5]{5,}/.test(compact) && /[-~]/.test(compact)) {
+    return "";
+  }
+
+  return text;
+}
+
+function normalizeCompareText(value) {
+  return String(value || "").replace(/\s+/g, "").trim().toLowerCase();
+}
+
+function normalizeRankingType(value) {
+  return String(value || "").replace(/\s+/g, "").trim();
+}
+
+function makeCategoryId(categoryId, categoryName) {
+  const standardById = findStandardCategoryById(categoryId);
+  if (standardById) {
+    return standardById.id;
+  }
+
+  const standardByName = findStandardCategoryByName(categoryName);
+  if (standardByName) {
+    return standardByName.id;
+  }
+
+  const explicitId = String(categoryId || "").trim();
+  if (explicitId) {
+    return explicitId;
+  }
+
+  const normalizedName = String(categoryName || "").replace(/\s+/g, "").trim();
+  return normalizedName ? `name:${normalizedName}` : "";
+}
+
+function normalizeCategoryNameToStandard(categoryId, categoryName) {
+  return (
+    findStandardCategoryById(categoryId)?.name ||
+    findStandardCategoryByName(categoryName)?.name ||
+    String(categoryName || "").trim()
+  );
+}
+
+function isShortVideoRanking(value) {
+  return normalizeRankingType(value) === SHORT_VIDEO_RANKING;
+}
+
+function isHeaderLikeRecord(record) {
+  return (
+    normalizeCompareText(record.productName) === "商品" &&
+    (/支付金额|支付区间/.test(String(record.paymentRange || "")) ||
+      /点击次数|点击区间/.test(String(record.clickRange || "")) ||
+      /成交件数|成交区间/.test(String(record.orderRange || "")))
+  );
+}
+
+function makeRecordKey(record) {
+  const productId = String(record.productId || "").trim();
+  const productUrl = String(record.productUrl || "").trim();
+  const productName = normalizeCompareText(record.productName);
+  const shopName = normalizeCompareText(record.shopName);
+  const videoId = String(record.videoId || "").trim();
+
+  const identity =
+    productId ||
+    productUrl ||
+    (productName ? `${productName}::${shopName}` : "") ||
+    videoId;
+
+  return [
+    makeCategoryId(record.categoryId, record.categoryName),
+    identity,
+    String(record.rankingType || "short-video").trim()
+  ].join("::");
+}
+
+function sanitizeRecord(input, batch) {
+  const capturedAt = batch.capturedAt;
+
+  return {
+    id: nanoid(),
+    batchId: batch.id,
+    captureHour: toHourKey(capturedAt),
+    categoryId: makeCategoryId(input.categoryId, input.categoryName || batch.categoryName),
+    categoryName: normalizeCategoryNameToStandard(
+      input.categoryId || batch.categoryId,
+      input.categoryName || batch.categoryName
+    ),
+    rankingType: input.rankingType || SHORT_VIDEO_RANKING,
+    page: Number(input.page || 1),
+    rank: Number(input.rank || 0),
+    productId: input.productId || "",
+    productName: input.productName || "",
+    productUrl: input.productUrl || "",
+    productImage: input.productImage || "",
+    shopName: input.shopName || "",
+    shopUrl: input.shopUrl || "",
+    videoId: input.videoId || "",
+    videoTitle: input.videoTitle || "",
+    videoUrl: input.videoUrl || "",
+    videoCover: input.videoCover || "",
+    videoPublishedAt: input.videoPublishedAt || "",
+    videos: Array.isArray(input.videos)
+      ? input.videos.map((video) => ({
+          videoId: video.videoId || "",
+          videoTitle: video.videoTitle || "",
+          videoUrl: video.videoUrl || "",
+          videoCover: video.videoCover || "",
+          videoPublishedAt: video.videoPublishedAt || "",
+          paymentRange: video.paymentRange || "",
+          clickRange: video.clickRange || "",
+          orderRange: video.orderRange || "",
+          videoCountRange: video.videoCountRange || "",
+          creatorName: video.creatorName || ""
+        }))
+      : [],
+    detectedVideoCount: Number(input.detectedVideoCount || 0),
+    paymentRange: normalizeRange(input.paymentRange),
+    clickRange: normalizeRange(input.clickRange),
+    orderRange: normalizeRange(input.orderRange),
+    videoCountRange: normalizeRange(input.videoCountRange),
+    isCompassFirstListed: Boolean(input.isCompassFirstListed),
+    creatorName: input.creatorName || "",
+    sourceUrl: batch.sourceUrl,
+    capturedAt
+  };
+}
+
+function isTrustedBatch(batch) {
+  return (
+    Number(batch?.captureSchemaVersion || 0) >= 4 &&
+    isShortVideoRanking(batch?.rankingType) &&
+    isCompleteEnoughBatch(batch)
+  );
+}
+
+function isCompleteEnoughBatch(batch) {
+  const pageLimit = Number(batch?.pageLimit || 10);
+  const recordCount = Number(batch?.recordCount || 0);
+
+  if (pageLimit >= 2 && recordCount <= 10) {
+    return false;
+  }
+
+  if (pageLimit >= 10 && recordCount < 80) {
+    return false;
+  }
+
+  return true;
+}
+
+function getBatchRecords(store, batchId) {
+  return store.records.filter((record) => record.batchId === batchId);
+}
+
+function getRecordQuality(records) {
+  const count = (predicate) => records.filter(predicate).length;
+  return {
+    total: records.length,
+    withProductImage: count((record) => String(record.productImage || "").trim()),
+    withPaymentRange: count((record) => String(record.paymentRange || "").trim()),
+    withClickRange: count((record) => String(record.clickRange || "").trim()),
+    withOrderRange: count((record) => String(record.orderRange || "").trim()),
+    withVideoSignal: count(
+      (record) =>
+        String(record.videoUrl || "").trim() ||
+        String(record.videoPublishedAt || "").trim() ||
+        String(record.videoCountRange || "").trim() ||
+        (Array.isArray(record.videos) && record.videos.length > 0)
+    )
+  };
+}
+
+function isSuspiciousRankingQuality(records) {
+  const quality = getRecordQuality(records);
+
+  if (quality.total >= 80 && quality.withVideoSignal < 60) {
+    return true;
+  }
+
+  return false;
+}
+
+function hasMeaningfulVideoRecords(store, batchId) {
+  const records = getBatchRecords(store, batchId);
+  if (isSuspiciousRankingQuality(records)) {
+    return false;
+  }
+
+  const strongVideoRows = records.filter(
+    (record) => record.videoTitle || record.videoPublishedAt || record.videoCountRange
+  ).length;
+  return strongVideoRows >= 3;
+}
+
+function hasRankingStart(store, batchId) {
+  const records = getBatchRecords(store, batchId);
+  return records.some((record) => Number(record.rank) === 1);
+}
+
+function getLatestTrustedBatches(store, categoryId, limit = 2) {
+  return store.captureBatches
+    .filter((batch) => String(batch.categoryId || "") === String(categoryId))
+    .filter(isTrustedBatch)
+    .filter((batch) => hasRankingStart(store, batch.id))
+    .filter((batch) => hasMeaningfulVideoRecords(store, batch.id))
+    .sort((left, right) => (left.capturedAt < right.capturedAt ? 1 : -1))
+    .slice(0, limit);
+}
+
+function trimHistory(store) {
+  const cutoff = subtractHours(getNowIso(), config.historyRetentionHours);
+  store.captureBatches = store.captureBatches.filter((batch) => isAfter(batch.capturedAt, cutoff));
+  const allowedBatchIds = new Set(store.captureBatches.map((batch) => batch.id));
+  store.records = store.records.filter((record) => allowedBatchIds.has(record.batchId));
+  return store;
+}
+
+function ensureCategory(store, payload) {
+  const categoryId = makeCategoryId(payload.categoryId, payload.categoryName);
+  const categoryName = normalizeCategoryNameToStandard(payload.categoryId, payload.categoryName);
+
+  if (!categoryId || !categoryName) {
+    return;
+  }
+
+  const existing = store.categories.find((entry) => entry.id === categoryId);
+  if (existing) {
+    if (existing.name !== categoryName) {
+      existing.name = categoryName;
+    }
+    return;
+  }
+
+  store.categories.push({
+    id: categoryId,
+    name: categoryName,
+    code: categoryName.split("/").join("-").toLowerCase(),
+    ownerUserIds: store.users.map((user) => user.id),
+    createdAt: getNowIso()
+  });
+}
+
+export function saveCapture(payload) {
+  const pageLimit = Number(payload.pageLimit || 10);
+  const recordCount = Array.isArray(payload.records) ? payload.records.length : 0;
+
+  if (pageLimit >= 2 && recordCount <= 10) {
+    const error = new Error(
+      `采集结果不足，已拒绝写入：目标 ${pageLimit} 页，实际 ${recordCount} 条。请刷新罗盘页面并确认插件版本后重试。`
+    );
+    error.statusCode = 422;
+    throw error;
+  }
+
+  if (pageLimit >= 10 && recordCount < 80) {
+    const error = new Error(
+      `采集结果不足，已拒绝写入：目标约 ${pageLimit * 10} 条，实际 ${recordCount} 条。`
+    );
+    error.statusCode = 422;
+    throw error;
+  }
+
+  const batch = {
+    id: nanoid(),
+    createdByUserId: payload.createdByUserId || "",
+    categoryId: makeCategoryId(payload.categoryId, payload.categoryName),
+    categoryName: normalizeCategoryNameToStandard(payload.categoryId, payload.categoryName),
+    rankingType: payload.rankingType || SHORT_VIDEO_RANKING,
+    sourceUrl: payload.sourceUrl || "",
+    capturedAt: payload.capturedAt || getNowIso(),
+    captureSchemaVersion: Number(payload.captureSchemaVersion || 0),
+    latestApiCapturedAt: Number(payload.latestApiCapturedAt || 0),
+    pageLimit: Number(payload.pageLimit || 10),
+    recordCount: Array.isArray(payload.records) ? payload.records.length : 0,
+    triggerMode: payload.triggerMode || "manual"
+  };
+
+  const normalized = (payload.records || []).map((entry) => sanitizeRecord(entry, batch));
+
+  if (pageLimit >= 10 && isSuspiciousRankingQuality(normalized)) {
+    const error = new Error(
+      "采集结果疑似不是短视频榜单数据，已拒绝写入。请刷新罗盘页面，确认停留在短视频榜 / 实时数据后重试。"
+    );
+    error.statusCode = 422;
+    throw error;
+  }
+
+  updateStore((store) => {
+    trimHistory(store);
+    ensureCategory(store, payload);
+    store.captureBatches.push(batch);
+    store.records.push(...normalized);
+    return store;
+  });
+
+  return batch;
+}
+
+export function getCategoriesForUser(user) {
+  const store = readStore();
+  const standardCategoryOrder = new Map(
+    STANDARD_CATEGORIES.map((category, index) => [category.id, index])
+  );
+  const storeCategories =
+    user.role === "admin"
+      ? store.categories
+      : store.categories.filter((entry) => entry.ownerUserIds.includes(user.id));
+  const recordCounts = new Map();
+  const batchTimes = new Map();
+  const visibleCategoryIds = new Set(storeCategories.map((entry) => String(entry.id || "")));
+
+  for (const record of store.records) {
+    const categoryId = String(record.categoryId || "");
+    recordCounts.set(categoryId, (recordCounts.get(categoryId) || 0) + 1);
+  }
+
+  for (const batch of store.captureBatches) {
+    const categoryId = String(batch.categoryId || "");
+    const previous = batchTimes.get(categoryId) || "";
+    if (!previous || previous < batch.capturedAt) {
+      batchTimes.set(categoryId, batch.capturedAt);
+    }
+  }
+
+  const standardCategories = STANDARD_CATEGORIES.map((category) => {
+    const existing = store.categories.find((entry) => String(entry.id || "") === category.id);
+    return {
+      ...(existing || {}),
+      id: category.id,
+      name: category.name,
+      code: existing?.code || category.name.split("/").join("-").toLowerCase(),
+      level1: category.level1,
+      level2: category.level2,
+      isStandard: true,
+      hasData: (recordCounts.get(category.id) || 0) > 0,
+      latestCapturedAt: batchTimes.get(category.id) || ""
+    };
+  });
+
+  const extraCategories = storeCategories
+    .filter((category) => !findStandardCategoryById(category.id) && !findStandardCategoryByName(category.name))
+    .map((category) => ({
+      ...category,
+      isStandard: false,
+      hasData: (recordCounts.get(String(category.id || "")) || 0) > 0,
+      latestCapturedAt: batchTimes.get(String(category.id || "")) || ""
+    }));
+
+  const visibleCategories =
+    user.role === "admin"
+      ? [...standardCategories, ...extraCategories]
+      : [...standardCategories.filter((category) => visibleCategoryIds.has(category.id)), ...extraCategories];
+
+  return visibleCategories
+    .sort((left, right) => {
+      const leftOrder = standardCategoryOrder.get(String(left.id)) ?? Number.MAX_SAFE_INTEGER;
+      const rightOrder = standardCategoryOrder.get(String(right.id)) ?? Number.MAX_SAFE_INTEGER;
+      if (leftOrder !== rightOrder) {
+        return leftOrder - rightOrder;
+      }
+      return String(left.name || "").localeCompare(String(right.name || ""), "zh-Hans-CN");
+    })
+    .filter((category, index, list) => {
+      return list.findIndex((entry) => entry.name === category.name) === index;
+    });
+}
+
+export function getVisibleRecords(user, filters = {}) {
+  const store = readStore();
+  const allowedCategoryIds = new Set(getCategoriesForUser(user).map((entry) => entry.id));
+  let records = store.records
+    .filter((record) => allowedCategoryIds.has(String(record.categoryId || "")))
+    .filter((record) => isShortVideoRanking(record.rankingType))
+    .filter((record) => record.productName || record.videoTitle)
+    .filter((record) => !isHeaderLikeRecord(record))
+    .filter((record) => !filters.categoryId || String(record.categoryId || "") === String(filters.categoryId))
+    .filter((record) => !filters.captureHour || record.captureHour === filters.captureHour);
+
+  if (filters.categoryId && !filters.captureHour) {
+    const latestBatch = store.captureBatches
+      .filter((batch) => String(batch.categoryId || "") === String(filters.categoryId))
+      .filter(isTrustedBatch)
+      .filter((batch) => hasRankingStart(store, batch.id))
+      .filter((batch) => hasMeaningfulVideoRecords(store, batch.id))
+      .sort((left, right) => (left.capturedAt < right.capturedAt ? 1 : -1))
+      .find((batch) =>
+        records.some(
+          (record) =>
+            record.batchId === batch.id &&
+            (record.productName || record.videoTitle)
+        )
+      );
+
+    if (latestBatch) {
+      records = records.filter((record) => record.batchId === latestBatch.id);
+    } else {
+      records = [];
+    }
+  }
+
+  return records.sort((left, right) => {
+    if (left.captureHour === right.captureHour) {
+      return left.rank - right.rank;
+    }
+    return left.captureHour < right.captureHour ? 1 : -1;
+  });
+}
+
+function buildRankingRowKey(record) {
+  const productId = String(record.productId || "").trim();
+  const productName = String(record.productName || "").trim();
+  const shopName = String(record.shopName || "").trim();
+  const productUrl = String(record.productUrl || "").trim();
+
+  return productId || productUrl || `${productName}::${shopName}`;
+}
+
+function uniqueVideos(records) {
+  const seen = new Set();
+  const videos = [];
+
+  for (const record of records) {
+    const nestedVideos = Array.isArray(record.videos) && record.videos.length
+      ? record.videos
+      : [{
+          videoId: record.videoId || "",
+          videoTitle: record.videoTitle || "",
+          videoUrl: record.videoUrl || "",
+          videoCover: record.videoCover || "",
+          videoPublishedAt: record.videoPublishedAt || "",
+          paymentRange: record.paymentRange || "",
+          clickRange: record.clickRange || "",
+          orderRange: record.orderRange || "",
+          videoCountRange: record.videoCountRange || "",
+          creatorName: record.creatorName || ""
+        }];
+
+    for (const video of nestedVideos) {
+      const videoKey =
+        String(video.videoId || "").trim() ||
+        String(video.videoUrl || "").trim() ||
+        `${video.videoTitle || ""}::${video.videoPublishedAt || ""}::${video.videoCover || ""}`;
+
+      if (!videoKey || seen.has(videoKey)) {
+        continue;
+      }
+
+      seen.add(videoKey);
+      videos.push({
+        videoId: video.videoId || "",
+        videoTitle: video.videoTitle || "",
+        videoUrl: video.videoUrl || "",
+        videoCover: video.videoCover || "",
+        videoPublishedAt: video.videoPublishedAt || "",
+        paymentRange: video.paymentRange || "",
+        clickRange: video.clickRange || "",
+        orderRange: video.orderRange || "",
+        videoCountRange: video.videoCountRange || "",
+        creatorName: video.creatorName || ""
+      });
+    }
+  }
+
+  return videos;
+}
+
+function buildRecordBackfillIndex(records) {
+  const index = new Map();
+  const sorted = [...records].sort((left, right) => String(right.capturedAt || "").localeCompare(String(left.capturedAt || "")));
+
+  for (const record of sorted) {
+    const key = buildRankingRowKey(record);
+    if (!key) {
+      continue;
+    }
+
+    if (!index.has(key)) {
+      index.set(key, {
+        productImage: "",
+        paymentRange: "",
+        clickRange: "",
+        orderRange: "",
+        videosById: new Map()
+      });
+    }
+
+    const entry = index.get(key);
+    entry.productImage ||= record.productImage || "";
+    entry.paymentRange ||= record.paymentRange || "";
+    entry.clickRange ||= record.clickRange || "";
+    entry.orderRange ||= record.orderRange || "";
+
+    for (const video of uniqueVideos([record])) {
+      const videoKey = String(video.videoId || "").trim() || String(video.videoUrl || "").trim();
+      if (!videoKey) {
+        continue;
+      }
+      const existing = entry.videosById.get(videoKey) || {};
+      entry.videosById.set(videoKey, {
+        ...existing,
+        videoCover: existing.videoCover || video.videoCover || "",
+        videoTitle: existing.videoTitle || video.videoTitle || "",
+        videoPublishedAt: existing.videoPublishedAt || video.videoPublishedAt || "",
+        creatorName: existing.creatorName || video.creatorName || ""
+      });
+    }
+  }
+
+  return index;
+}
+
+function backfillRecordForDisplay(record, backfillIndex) {
+  const key = buildRankingRowKey(record);
+  const fill = key ? backfillIndex.get(key) : null;
+  if (!fill) {
+    return record;
+  }
+
+  const videos = uniqueVideos([record]).map((video) => {
+    const videoKey = String(video.videoId || "").trim() || String(video.videoUrl || "").trim();
+    const videoFill = videoKey ? fill.videosById.get(videoKey) : null;
+    if (!videoFill) {
+      return video;
+    }
+    return {
+      ...video,
+      videoCover: video.videoCover || videoFill.videoCover || "",
+      videoTitle: video.videoTitle || videoFill.videoTitle || "",
+      videoPublishedAt: video.videoPublishedAt || videoFill.videoPublishedAt || "",
+      creatorName: video.creatorName || videoFill.creatorName || ""
+    };
+  });
+
+  return {
+    ...record,
+    productImage: record.productImage || fill.productImage || "",
+    paymentRange: record.paymentRange || fill.paymentRange || "",
+    clickRange: record.clickRange || fill.clickRange || "",
+    orderRange: record.orderRange || fill.orderRange || "",
+    videoCover: record.videoCover || videos.find((video) => video.videoCover)?.videoCover || "",
+    videos
+  };
+}
+
+function parseRangeLevel(value) {
+  const text = String(value || "").replace(/\s+/g, "");
+  if (!text || /^(https?:)?\/\//i.test(text)) {
+    return null;
+  }
+
+  const normalized = text.replace(/[¥￥元,，]/g, "").toLowerCase();
+  const values = [];
+  const pattern = /(\d+(?:\.\d+)?)(万|w|千|k|百|b)?/gi;
+  let match;
+  while ((match = pattern.exec(normalized))) {
+    const unit = String(match[2] || "");
+    let parsed = Number(match[1]);
+    if (!Number.isFinite(parsed)) {
+      continue;
+    }
+    if (unit === "万" || unit === "w") {
+      parsed *= 10000;
+    } else if (unit === "千" || unit === "k") {
+      parsed *= 1000;
+    } else if (unit === "百" || unit === "b") {
+      parsed *= 100;
+    }
+    values.push(parsed);
+  }
+
+  return values.length ? Math.max(...values) : null;
+}
+
+function parseCleanRangeLevel(value) {
+  const text = String(value || "").replace(/\s+/g, "");
+  if (!text || text.length > 28 || !/[-~]/.test(text) || !/\d/.test(text) || /^(https?:)?\/\//i.test(text)) {
+    return null;
+  }
+  const cjkCount = Array.from(text).filter((ch) => {
+    const code = ch.charCodeAt(0);
+    return code >= 0x4e00 && code <= 0x9fff;
+  }).length;
+  if (cjkCount >= 5) {
+    return null;
+  }
+
+  const normalized = text
+    .replace(/\uFFE5|\u00A5|,|\u5143/g, "")
+    .replace(/\u4e07/g, "w")
+    .replace(/\u5343/g, "k")
+    .toLowerCase();
+  const values = [];
+  const pattern = /(\d+(?:\.\d+)?)(w|k)?/gi;
+  let match;
+  while ((match = pattern.exec(normalized))) {
+    let parsed = Number(match[1]);
+    if (!Number.isFinite(parsed)) {
+      continue;
+    }
+    if (match[2] === "w") {
+      parsed *= 10000;
+    } else if (match[2] === "k") {
+      parsed *= 1000;
+    }
+    values.push(parsed);
+  }
+  return values.length ? Math.max(...values) : null;
+}
+
+function buildDiffItem(label, previousValue, currentValue, kind) {
+  const previousText = previousValue || "";
+  const currentText = currentValue || "";
+  if (previousText === currentText) {
+    return null;
+  }
+
+  const previousLevel = parseCleanRangeLevel(previousText);
+  const currentLevel = parseCleanRangeLevel(currentText);
+  if (previousLevel == null || currentLevel == null) {
+    return null;
+  }
+  const direction =
+    previousLevel != null && currentLevel != null
+      ? currentLevel > previousLevel
+        ? "up"
+        : currentLevel < previousLevel
+          ? "down"
+          : "changed"
+      : "changed";
+
+  return {
+    label,
+    kind,
+    previous: previousText,
+    current: currentText,
+    text: `${label} ${previousText || "-"} -> ${currentText || "-"}`,
+    direction,
+    isRangeJump: direction === "up"
+  };
+}
+
+function buildQualitySummary(rows) {
+  const total = rows.length;
+  const count = (predicate) => rows.filter(predicate).length;
+  return {
+    total,
+    paymentFilled: count((row) => row.paymentRange),
+    clickFilled: count((row) => row.clickRange),
+    orderFilled: count((row) => row.orderRange),
+    productImageFilled: count((row) => row.productImage),
+    videoCoverFilled: count((row) => (row.videos || []).some((video) => video.videoCover)),
+    videoFilled: count((row) => (row.videos || []).length > 0)
+  };
+}
+
+function parseRangeLevelForRawRows(value) {
+  return parseCleanRangeLevel(value);
+}
+
+function buildRawRowDiffItem(label, previousValue, currentValue, kind) {
+  const previousText = previousValue || "";
+  const currentText = currentValue || "";
+  if (previousText === currentText) {
+    return null;
+  }
+
+  const previousLevel = parseRangeLevelForRawRows(previousText);
+  const currentLevel = parseRangeLevelForRawRows(currentText);
+  if (previousLevel == null || currentLevel == null) {
+    return null;
+  }
+  const direction =
+    previousLevel != null && currentLevel != null
+      ? currentLevel > previousLevel
+        ? "up"
+        : currentLevel < previousLevel
+          ? "down"
+          : "changed"
+      : "changed";
+
+  return {
+    label,
+    kind,
+    previous: previousText,
+    current: currentText,
+    text: `${label} ${previousText || "-"} -> ${currentText || "-"}`,
+    direction,
+    isRangeJump: direction === "up"
+  };
+}
+
+function isVisibleDiffItem(item) {
+  if (!item || item.kind === "videoCount") {
+    return false;
+  }
+  const text = `${item.label || ""} ${item.text || ""}`;
+  return !/视频数|video\s*count/i.test(text);
+}
+
+function buildRankingRawRow(record, previous, latestBatches) {
+  const videos = uniqueVideos([record]);
+  const diffItems = previous
+    ? [
+        buildRawRowDiffItem("支付", previous.paymentRange, record.paymentRange, "payment"),
+        buildRawRowDiffItem("点击", previous.clickRange, record.clickRange, "click"),
+        buildRawRowDiffItem("成交", previous.orderRange, record.orderRange, "order"),
+        buildRawRowDiffItem("视频数", previous.videoCountRange, record.videoCountRange, "videoCount")
+      ].filter(isVisibleDiffItem)
+    : [];
+  const statusTags = [];
+
+  if (!previous) {
+    statusTags.push("新增商品");
+  }
+  if (previous && previous.rank !== record.rank) {
+    statusTags.push(record.rank < previous.rank ? "排名上升" : "排名变化");
+  }
+  if (diffItems.some((item) => item.kind === "payment" && item.direction === "up")) {
+    statusTags.push("支付上升");
+  }
+  if (diffItems.some((item) => item.kind === "click" && item.direction === "up")) {
+    statusTags.push("点击上升");
+  }
+  if (diffItems.some((item) => item.kind === "order" && item.direction === "up")) {
+    statusTags.push("成交上升");
+  }
+  if (diffItems.some((item) => ["payment", "click", "order"].includes(item.kind) && item.isRangeJump)) {
+    statusTags.push("区间跳跃");
+  }
+  if (record.isCompassFirstListed) {
+    statusTags.push("首次上榜");
+  }
+
+  return {
+    id: record.id,
+    batchId: record.batchId,
+    captureHour: record.captureHour,
+    capturedAt: record.capturedAt,
+    categoryId: record.categoryId,
+    categoryName: record.categoryName,
+    rankingType: record.rankingType,
+    page: record.page,
+    rank: record.rank,
+    productId: record.productId,
+    productName: record.productName,
+    productUrl: record.productUrl,
+    productImage: record.productImage,
+    shopName: record.shopName,
+    shopUrl: record.shopUrl,
+    sourceUrl: record.sourceUrl,
+    videos,
+    videoCount: Number(record.detectedVideoCount || record.videoCountRange || videos.length || 0),
+    latestVideoPublishedAt: videos
+      .map((video) => video.videoPublishedAt)
+      .filter(Boolean)
+      .sort()
+      .reverse()[0] || "",
+    paymentRange: record.paymentRange || "",
+    clickRange: record.clickRange || "",
+    orderRange: record.orderRange || "",
+    previousPaymentRange: previous?.paymentRange || "",
+    previousClickRange: previous?.clickRange || "",
+    previousOrderRange: previous?.orderRange || "",
+    videoCountRange: record.videoCountRange || "",
+    isCompassFirstListed: Boolean(record.isCompassFirstListed),
+    isNewcomer: !previous,
+    hasDiff: Boolean(!previous || previous.rank !== record.rank || diffItems.length),
+    isRangeJump: diffItems.some((item) => item.isRangeJump),
+    statusTags: [...new Set(statusTags)],
+    diffItems,
+    diffChanges: diffItems.map((item) => item.text),
+    compareCurrentBatchAt: latestBatches[0]?.capturedAt || "",
+    comparePreviousBatchAt: latestBatches[1]?.capturedAt || ""
+  };
+}
+
+export function getRankingRows(user, filters = {}) {
+  const records = getVisibleRecords(user, filters);
+  const store = readStore();
+  const latestBatches = filters.categoryId ? getLatestTrustedBatches(store, filters.categoryId, 2) : [];
+  const backfillIndex = buildRecordBackfillIndex(
+    store.records
+      .filter((record) => isShortVideoRanking(record.rankingType))
+      .filter((record) => !filters.categoryId || String(record.categoryId || "") === String(filters.categoryId))
+  );
+  const currentBatchId = latestBatches[0]?.id || null;
+  const previousBatchId = latestBatches[1]?.id || null;
+  const previousBatchRecords = previousBatchId
+    ? store.records
+        .filter((record) => record.batchId === previousBatchId)
+        .map((record) => backfillRecordForDisplay(record, backfillIndex))
+    : [];
+  const previousByKey = new Map(previousBatchRecords.map((record) => [makeRecordKey(record), record]));
+
+  if (currentBatchId) {
+    const rawRows = records
+      .filter((record) => record.batchId === currentBatchId)
+      .map((record) => backfillRecordForDisplay(record, backfillIndex))
+      .sort((left, right) => left.rank - right.rank)
+      .map((record) => buildRankingRawRow(record, previousByKey.get(makeRecordKey(record)), latestBatches));
+    const qualitySummary = buildQualitySummary(rawRows);
+    return rawRows.map((row) => ({ ...row, qualitySummary }));
+  }
+
+  const grouped = new Map();
+
+  for (const record of records.map((entry) => backfillRecordForDisplay(entry, backfillIndex))) {
+    const key = buildRankingRowKey(record);
+    if (!key) {
+      continue;
+    }
+
+    if (!grouped.has(key)) {
+      grouped.set(key, []);
+    }
+
+    grouped.get(key).push(record);
+  }
+
+  const rows = [...grouped.values()]
+    .map((entries) => {
+      const sortedEntries = [...entries].sort((left, right) => left.rank - right.rank);
+      const primary = sortedEntries[0];
+      const videos = uniqueVideos(sortedEntries);
+      const maxDetectedVideoCount = Math.max(
+        ...sortedEntries.map((entry) => Number(entry.detectedVideoCount || 0)),
+        videos.length
+      );
+      const compareRecord = currentBatchId
+        ? sortedEntries.find((entry) => entry.batchId === currentBatchId) || primary
+        : primary;
+      const previous = previousByKey.get(makeRecordKey(compareRecord));
+      const diffChanges = [];
+
+      if (!previous) {
+        diffChanges.push("本次采集新进入榜单");
+      } else {
+        if (previous.rank !== compareRecord.rank) {
+          diffChanges.push(`排名 ${previous.rank} -> ${compareRecord.rank}`);
+        }
+        if (previous.paymentRange !== compareRecord.paymentRange) {
+          diffChanges.push(`支付区间 ${previous.paymentRange || "-"} -> ${compareRecord.paymentRange || "-"}`);
+        }
+        if (previous.clickRange !== compareRecord.clickRange) {
+          diffChanges.push(`点击区间 ${previous.clickRange || "-"} -> ${compareRecord.clickRange || "-"}`);
+        }
+        if (previous.orderRange !== compareRecord.orderRange) {
+          diffChanges.push(`成交区间 ${previous.orderRange || "-"} -> ${compareRecord.orderRange || "-"}`);
+        }
+      }
+
+      const diffItems = previous
+        ? [
+            buildDiffItem("支付", previous.paymentRange, compareRecord.paymentRange, "payment"),
+            buildDiffItem("点击", previous.clickRange, compareRecord.clickRange, "click"),
+            buildDiffItem("成交", previous.orderRange, compareRecord.orderRange, "order"),
+            buildDiffItem("视频数", previous.videoCountRange, compareRecord.videoCountRange, "videoCount")
+          ].filter(isVisibleDiffItem)
+        : [];
+      const statusTags = [];
+
+      if (!previous && currentBatchId) {
+        statusTags.push("新增商品");
+      }
+      if (previous && previous.rank !== compareRecord.rank) {
+        statusTags.push(compareRecord.rank < previous.rank ? "排名上升" : "排名变化");
+      }
+      if (diffItems.some((item) => item.kind === "payment" && item.direction === "up")) {
+        statusTags.push("支付上升");
+      }
+      if (diffItems.some((item) => item.kind === "click" && item.direction === "up")) {
+        statusTags.push("点击上升");
+      }
+      if (diffItems.some((item) => item.kind === "order" && item.direction === "up")) {
+        statusTags.push("成交上升");
+      }
+      if (sortedEntries.some((entry) => entry.isCompassFirstListed)) {
+        statusTags.push("首次上榜");
+      }
+
+      return {
+        id: primary.batchId ? `${primary.batchId}::${buildRankingRowKey(primary)}` : primary.id,
+        batchId: primary.batchId,
+        captureHour: primary.captureHour,
+        capturedAt: primary.capturedAt,
+        categoryId: primary.categoryId,
+        categoryName: primary.categoryName,
+        rankingType: primary.rankingType,
+        page: primary.page,
+        rank: primary.rank,
+        productId: primary.productId,
+        productName: primary.productName,
+        productUrl: primary.productUrl,
+        productImage: primary.productImage,
+        shopName: primary.shopName,
+        shopUrl: primary.shopUrl,
+        sourceUrl: primary.sourceUrl,
+        videos,
+        videoCount: maxDetectedVideoCount,
+        latestVideoPublishedAt: videos
+          .map((video) => video.videoPublishedAt)
+          .filter(Boolean)
+          .sort()
+          .reverse()[0] || "",
+        paymentRange: primary.paymentRange || "",
+        clickRange: primary.clickRange || "",
+        orderRange: primary.orderRange || "",
+        previousPaymentRange: previous?.paymentRange || "",
+        previousClickRange: previous?.clickRange || "",
+        previousOrderRange: previous?.orderRange || "",
+        videoCountRange: primary.videoCountRange || "",
+        isCompassFirstListed: Boolean(sortedEntries.some((entry) => entry.isCompassFirstListed)),
+        isNewcomer: !previous && Boolean(currentBatchId),
+        hasDiff: Boolean(previous && diffChanges.length),
+        isRangeJump: diffItems.some((item) => item.isRangeJump),
+        statusTags: [...new Set(statusTags)],
+        diffItems,
+        diffChanges,
+        compareCurrentBatchAt: latestBatches[0]?.capturedAt || "",
+        comparePreviousBatchAt: latestBatches[1]?.capturedAt || ""
+      };
+    })
+    .sort((left, right) => left.rank - right.rank);
+
+  const qualitySummary = buildQualitySummary(rows);
+  return rows.map((row) => ({ ...row, qualitySummary }));
+}
+
+export function getLatestBatchByCategory(categoryId) {
+  const store = readStore();
+  return getLatestTrustedBatches(store, categoryId, 1)[0];
+}
+
+export function getOverview(user) {
+  const categories = getCategoriesForUser(user);
+  const records = getVisibleRecords(user);
+  const latestHour = records[0]?.captureHour || null;
+  const latestRecords = latestHour ? records.filter((entry) => entry.captureHour === latestHour) : [];
+  const uniqueProducts = new Set(latestRecords.map((entry) => entry.productId || entry.productName));
+  const categoriesWithData = new Set(latestRecords.map((entry) => entry.categoryId));
+
+  return {
+    latestHour,
+    categoryCount: categories.length,
+    categoriesWithData: categoriesWithData.size,
+    recordCount: latestRecords.length,
+    productCount: uniqueProducts.size
+  };
+}
+
+export function getHourlyDiffs(user, categoryId) {
+  const store = readStore();
+  const allowedCategoryIds = new Set(getCategoriesForUser(user).map((entry) => entry.id));
+  let records;
+  let currentBatchId = null;
+  let previousBatchId = null;
+  let currentLabel = null;
+  let previousLabel = null;
+
+  if (categoryId) {
+    const latestBatches = getLatestTrustedBatches(store, categoryId, 2);
+    const allowedBatchIds = new Set(latestBatches.map((batch) => batch.id));
+    currentBatchId = latestBatches[0]?.id || null;
+    previousBatchId = latestBatches[1]?.id || null;
+    currentLabel = latestBatches[0]?.capturedAt || null;
+    previousLabel = latestBatches[1]?.capturedAt || null;
+
+    records = store.records
+      .filter((record) => allowedCategoryIds.has(String(record.categoryId || "")))
+      .filter((record) => isShortVideoRanking(record.rankingType))
+      .filter((record) => String(record.categoryId || "") === String(categoryId))
+      .filter((record) => allowedBatchIds.has(record.batchId))
+      .filter((record) => record.productName || record.videoTitle)
+      .sort((left, right) => {
+        if (left.captureHour === right.captureHour) {
+          return left.rank - right.rank;
+        }
+        return left.captureHour < right.captureHour ? 1 : -1;
+      });
+  } else {
+    records = getVisibleRecords(user, { categoryId });
+  }
+
+  if (categoryId && currentBatchId) {
+    const currentRecords = records.filter((entry) => entry.batchId === currentBatchId);
+    const previousRecords = previousBatchId
+      ? records.filter((entry) => entry.batchId === previousBatchId)
+      : [];
+    const previousByKey = new Map(previousRecords.map((entry) => [makeRecordKey(entry), entry]));
+
+    const newcomers = currentRecords
+      .filter((record) => !previousByKey.has(makeRecordKey(record)))
+      .map((record) => ({
+        ...record,
+        changeType: "newcomer"
+      }));
+
+    const shifts = currentRecords
+      .map((record) => {
+        const previous = previousByKey.get(makeRecordKey(record));
+        if (!previous) {
+          return null;
+        }
+
+        const changes = [];
+
+        if (previous.rank !== record.rank) {
+          changes.push(`排名 ${previous.rank} -> ${record.rank}`);
+        }
+
+        if (previous.paymentRange !== record.paymentRange) {
+          changes.push(`支付区间 ${previous.paymentRange} -> ${record.paymentRange}`);
+        }
+
+        if (previous.clickRange !== record.clickRange) {
+          changes.push(`点击区间 ${previous.clickRange} -> ${record.clickRange}`);
+        }
+
+        if (previous.orderRange !== record.orderRange) {
+          changes.push(`成交区间 ${previous.orderRange} -> ${record.orderRange}`);
+        }
+
+        if (!changes.length) {
+          return null;
+        }
+
+        return {
+          ...record,
+          previousRank: previous.rank,
+          previousPaymentRange: previous.paymentRange,
+          previousClickRange: previous.clickRange,
+          previousOrderRange: previous.orderRange,
+          changes
+        };
+      })
+      .filter(Boolean);
+
+    return {
+      currentHour: currentLabel,
+      previousHour: previousLabel,
+      currentRecordCount: currentRecords.length,
+      previousRecordCount: previousRecords.length,
+      newcomerCount: newcomers.length,
+      shiftCount: shifts.length,
+      newcomers,
+      shifts
+    };
+  }
+
+  const hours = [...new Set(records.map((entry) => entry.captureHour))].sort().reverse();
+  const currentHour = hours[0];
+  const previousHour = hours[1];
+
+  if (!currentHour) {
+    return { currentHour: null, previousHour: null, newcomers: [], shifts: [] };
+  }
+
+  const currentRecords = records.filter((entry) => entry.captureHour === currentHour);
+  const previousRecords = records.filter((entry) => entry.captureHour === previousHour);
+
+  const previousByKey = new Map(previousRecords.map((entry) => [makeRecordKey(entry), entry]));
+
+  const newcomers = currentRecords
+    .filter((record) => !previousByKey.has(makeRecordKey(record)))
+    .map((record) => ({
+      ...record,
+      changeType: "newcomer"
+    }));
+
+  const shifts = currentRecords
+    .map((record) => {
+      const previous = previousByKey.get(makeRecordKey(record));
+      if (!previous) {
+        return null;
+      }
+
+      const changes = [];
+
+      if (previous.rank !== record.rank) {
+        changes.push(`排名 ${previous.rank} -> ${record.rank}`);
+      }
+
+      if (previous.paymentRange !== record.paymentRange) {
+        changes.push(`支付区间 ${previous.paymentRange} -> ${record.paymentRange}`);
+      }
+
+      if (previous.clickRange !== record.clickRange) {
+        changes.push(`点击区间 ${previous.clickRange} -> ${record.clickRange}`);
+      }
+
+      if (previous.orderRange !== record.orderRange) {
+        changes.push(`成交区间 ${previous.orderRange} -> ${record.orderRange}`);
+      }
+
+      if (!changes.length) {
+        return null;
+      }
+
+      return {
+        ...record,
+        previousRank: previous.rank,
+        previousPaymentRange: previous.paymentRange,
+        previousClickRange: previous.clickRange,
+        previousOrderRange: previous.orderRange,
+        changes
+      };
+    })
+    .filter(Boolean);
+
+  return {
+    currentHour,
+    previousHour,
+    currentRecordCount: currentRecords.length,
+    previousRecordCount: previousRecords.length,
+    newcomerCount: newcomers.length,
+    shiftCount: shifts.length,
+    newcomers,
+    shifts
+  };
+}
+
+export function getCaptureHistory(user) {
+  const store = readStore();
+  const allowedCategoryIds = new Set(getCategoriesForUser(user).map((entry) => entry.id));
+
+  return store.captureBatches
+    .filter((entry) => allowedCategoryIds.has(String(entry.categoryId || "")))
+    .filter(isTrustedBatch)
+    .sort((left, right) => (left.capturedAt < right.capturedAt ? 1 : -1));
+}
