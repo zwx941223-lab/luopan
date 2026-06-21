@@ -990,6 +990,32 @@ select:disabled {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.missed-category-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.missed-category-list span {
+  padding: 8px 12px;
+  border: 1px solid rgba(232, 68, 82, 0.18);
+  border-radius: 999px;
+  color: #a3303d;
+  background: rgba(232, 68, 82, 0.07);
+  font-size: 13px;
+  line-height: 1;
+}
+
+.missed-category-ok {
+  display: grid;
+  place-items: center;
+  min-height: 76px;
+  border: 1px dashed rgba(29, 168, 155, 0.26);
+  border-radius: 12px;
+  color: #08776e;
+  background: rgba(29, 168, 155, 0.08);
+}
+
 .table-shell {
   overflow: auto;
   border-radius: 12px;

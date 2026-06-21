@@ -113,7 +113,7 @@
         <input type="checkbox" id="dy-cat-${index}" data-level1="${level1}">
         <label for="dy-cat-${index}">${level1}</label>
         <select data-level1="${level1}">
-          ${rows.map((item) => `<option value="${item.id}" data-name="${item.name}">${item.level2 || item.name.split("/").slice(1).join("/") || item.name}</option>`).join("")}
+          ${rows.map((item) => `<option value="${item.id}" data-name="${item.name}" data-level1="${item.level1 || level1}" data-level2="${item.level2 || item.name.split("/").slice(1).join("/") || item.name}">${item.level2 || item.name.split("/").slice(1).join("/") || item.name}</option>`).join("")}
         </select>
       </div>
     `).join("");
@@ -127,14 +127,21 @@
         const option = select?.selectedOptions?.[0];
         return {
           categoryId: select?.value || "",
-          categoryName: option?.dataset.name || ""
+          categoryName: option?.dataset.name || "",
+          level1: option?.dataset.level1 || "",
+          level2: option?.dataset.level2 || ""
         };
       })
       .filter((item) => item.categoryId && item.categoryName);
   }
 
   function allCategories() {
-    return categories().map((item) => ({ categoryId: item.id, categoryName: item.name }));
+    return categories().map((item) => ({
+      categoryId: item.id,
+      categoryName: item.name,
+      level1: item.level1 || "",
+      level2: item.level2 || ""
+    }));
   }
 
   function setBusy(busy) {
@@ -181,6 +188,7 @@
       pageLimit: runtime.config.pageLimit || 10
     });
     if (!result.records.length) throw new Error(t.noData);
+    const domFallbackPages = (result.debug || []).filter((item) => item.api === "dom-fallback").length;
 
     setStatus(`(${index}/${total}) \u4e0a\u4f20 ${result.records.length} \u6761\uff1a${category.categoryName}`);
     await upload(result.records, {
@@ -191,6 +199,8 @@
       captureSchemaVersion: 4,
       pageLimit: runtime.config.pageLimit || 10,
       triggerMode: "plugin-v4",
+      captureFallbackMode: domFallbackPages ? "dom" : "api",
+      domFallbackPages,
       capturedAt: new Date().toISOString(),
       latestApiCapturedAt: Date.now()
     });

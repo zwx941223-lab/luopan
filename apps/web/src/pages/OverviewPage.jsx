@@ -7,6 +7,7 @@ export function OverviewPage() {
   const overview = useDashboardData(fetchOverview, []);
   const categories = useDashboardData(fetchCategories, []);
   const categoryList = categories.data || [];
+  const missedCategories = categoryList.filter((category) => !category.hasData);
 
   return (
     <div className="page-stack">
@@ -15,9 +16,23 @@ export function OverviewPage() {
           <div className="metrics-grid">
             <MetricCard label="当前可见类目" value={overview.data?.categoryCount || 0} accent="gold" />
             <MetricCard label="已有数据类目" value={overview.data?.categoriesWithData || 0} accent="teal" />
-            <MetricCard label="最新记录数" value={overview.data?.recordCount || 0} accent="rose" />
-            <MetricCard label="最新商品数" value={overview.data?.productCount || 0} />
+            <MetricCard label="未采集到类目" value={missedCategories.length} accent="rose" />
+            <MetricCard label="最新记录数" value={overview.data?.recordCount || 0} />
           </div>
+        </StatusPanel>
+      </PageSection>
+
+      <PageSection title="未采集到的类目" subtitle="成功采集后，这里会展示仍然没有数据的类目">
+        <StatusPanel loading={categories.loading} error={categories.error} empty={!categoryList.length}>
+          {missedCategories.length ? (
+            <div className="missed-category-list">
+              {missedCategories.map((category) => (
+                <span key={category.id}>{category.name}</span>
+              ))}
+            </div>
+          ) : (
+            <div className="missed-category-ok">全部类目已有采集数据</div>
+          )}
         </StatusPanel>
       </PageSection>
 
@@ -28,7 +43,7 @@ export function OverviewPage() {
               <article key={category.id} className="category-card">
                 <p className="section-eyebrow">{category.code || "category"}</p>
                 <h3>{category.name}</h3>
-                <span>已绑定运营视图</span>
+                <span>{category.hasData ? "已有采集数据" : "暂无采集数据"}</span>
               </article>
             ))}
           </div>

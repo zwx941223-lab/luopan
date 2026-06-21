@@ -1,5 +1,30 @@
 # DY Monitor Project Status
 
+## 2026-06-21 - plugin-v4.0.4 + web-v1.7.99 delivery
+
+- Restored plugin from `xf1` as the stable baseline before applying the category fix.
+- Kept the original successful category-click flow and only passed standard `level1` / `level2` metadata from the panel.
+- This prevents multi-slash second-level categories such as `智能家居/电子/电工` from being truncated during switching.
+- Verified plugin syntax checks plus server and web production builds.
+
+## 2026-06-21 - plugin-v4.0.2 + server fallback hotfix
+
+- Plugin uploads now mark DOM fallback captures with `captureFallbackMode: dom` and `domFallbackPages`.
+- Backend stores fallback metadata and allows DOM fallback batches to pass the short-video quality gate when row counts are complete.
+- Latest-batch selection now accepts DOM fallback batches, targeting `玩具乐器/玩具` where the visible short-video table is valid but the API parser lacks video signal.
+
+## 2026-06-21 - web-v1.7.99
+
+- Added an overview metric for categories that still have no captured data.
+- Added a compact "未采集到的类目" section so operators can quickly see missing categories after a successful run.
+- Restored the overview page copy to readable Chinese while keeping the existing Compass-like layout.
+
+## 2026-06-21 - plugin-v4.0.1
+
+- Added DOM table fallback capture when a category's short-video API response cannot be recognized.
+- The fallback is page-scoped and only runs when API rows are empty, preserving the normal API-first path for stable categories.
+- This targets the remaining `玩具乐器/玩具` empty-data failure after server deployment.
+
 ## 2026-06-21 - server performance hotfix
 
 - Optimized high-traffic backend reads for large datasets.

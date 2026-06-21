@@ -280,7 +280,9 @@
   }
 
   async function switchToCategory(category) {
-    const [level1, level2] = String(category?.categoryName || category?.name || "").split("/");
+    const parts = String(category?.categoryName || category?.name || "").split("/");
+    const level1 = category?.level1 || parts[0] || "";
+    const level2 = category?.level2 || parts.slice(1).join("/") || parts[1] || "";
     if (!level1 || !level2) return { ok: false, message: "\u76ee\u6807\u7c7b\u76ee\u4e0d\u5b8c\u6574" };
 
     runtime.state.apiCandidates = [];
@@ -695,8 +697,83 @@
       .filter((row) => row.productName || row.productId || row.videoTitle);
   }
 
-  function visibleTablePatchRows(page) {
+  function visibleTableRows() {
     const rowSelectors = "tr[data-row-key],.ant-table-row,[class*='table'] tbody tr,table tbody tr";
+    return Array.from(document.querySelectorAll(rowSelectors))
+      .filter(visible)
+      .filter((row) => {
+        const rowText = compact(text(row));
+        return rowText && !/^商品/.test(rowText) && !/支付金额点击次数成交件数/.test(rowText);
+      })
+      .slice(0, 10);
+  }
+
+  function cjkCount(value) {
+    return Array.from(String(value || "")).filter((ch) => {
+      const code = ch.charCodeAt(0);
+      return code >= 0x4e00 && code <= 0x9fff;
+    }).length;
+  }
+
+  function isMetricRange(value) {
+    const cell = String(value || "").replace(/\s+/g, "");
+    if (!cell || cell.length > 24) return false;
+    if (!/\d/.test(cell) || !/[-~]/.test(cell)) return false;
+    if (cjkCount(cell) >= 5) return false;
+    if (/^20\d{2}/.test(cell)) return false;
+    const normalized = cell.replace(/\uFFE5|\u00A5/g, "").toLowerCase();
+    return /^[0-9.,]+(?:\u5143|\u4e07|\u5343|w|k)?[-~][0-9.,]+(?:\u5143|\u4e07|\u5343|w|k)?$/.test(normalized);
+  }
+
+  function visibleTableFallbackRows(meta, page) {
+    return visibleTableRows()
+      .map((row, index) => {
+        const cells = Array.from(row.querySelectorAll("td,[role='cell']"))
+          .map((cell) => text(cell))
+          .filter(Boolean);
+        const rowText = text(row);
+        const firstRank = Number((cells.find((cell) => /^\s*\d+\s*$/.test(cell)) || "").replace(/[^\d]/g, ""));
+        const rank = firstRank || (page - 1) * 10 + index + 1;
+        const ranges = cells.map((cell) => cell.replace(/\s+/g, "")).filter(isMetricRange);
+        const image = row.querySelector("img[src]")?.src || "";
+        const productName = cells.find((cell) => {
+          const compactCell = compact(cell);
+          if (!compactCell || /^\d+$/.test(compactCell) || isMetricRange(compactCell)) return false;
+          if (/首次上榜|支付|点击|成交|短视频|直播|达人|佣金/.test(compactCell)) return false;
+          return cjkCount(compactCell) >= 2;
+        }) || rowText.slice(0, 80);
+
+        return {
+          categoryId: meta.categoryId || "",
+          categoryName: meta.categoryName || "",
+          rankingType: runtime.config.rankingType || LABELS.ranking,
+          page,
+          rank,
+          productId: "",
+          productName,
+          productUrl: "",
+          productImage: image,
+          shopName: "",
+          shopUrl: "",
+          videoId: "",
+          videoTitle: "",
+          videoUrl: "",
+          videoCover: "",
+          videoPublishedAt: "",
+          videos: [],
+          detectedVideoCount: 0,
+          paymentRange: ranges[0] || "",
+          clickRange: ranges[1] || "",
+          orderRange: ranges[2] || "",
+          videoCountRange: "",
+          isCompassFirstListed: rowText.includes("\u9996\u6b21\u4e0a\u699c"),
+          creatorName: ""
+        };
+      })
+      .filter((row) => row.productName);
+  }
+
+  function visibleTablePatchRows(page) {
     const cjkCount = (value) =>
       Array.from(String(value || "")).filter((ch) => {
         const code = ch.charCodeAt(0);
@@ -711,9 +788,7 @@
       const normalized = cell.replace(/\uFFE5|\u00A5/g, "").toLowerCase();
       return /^[0-9.,]+(?:\u5143|\u4e07|\u5343|w|k)?[-~][0-9.,]+(?:\u5143|\u4e07|\u5343|w|k)?$/.test(normalized);
     };
-    return Array.from(document.querySelectorAll(rowSelectors))
-      .filter(visible)
-      .slice(0, 12)
+    return visibleTableRows()
       .map((row, index) => {
         const rowText = compact(text(row));
         const cells = Array.from(row.querySelectorAll("td,[role='cell']")).map((cell) => text(cell));
@@ -793,6 +868,15 @@
       let result = await waitForApiRows(resolvedMeta, page, before);
       if (page === 1 && !result.rows.length) {
         result = bestRecentRows(resolvedMeta, page, keepAfter);
+      }
+      if (!result.rows.length) {
+        const fallbackRows = visibleTableFallbackRows(resolvedMeta, page);
+        if (fallbackRows.length) {
+          result = {
+            rows: fallbackRows,
+            candidate: { url: "dom-fallback" }
+          };
+        }
       }
       result = { ...result, rows: mergeVisibleMetrics(result.rows, page) };
       records.push(...result.rows);

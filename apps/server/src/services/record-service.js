@@ -261,16 +261,21 @@ function isSuspiciousRankingQuality(records) {
   return false;
 }
 
+function isDomFallbackBatch(batch) {
+  return String(batch?.captureFallbackMode || "") === "dom" || Number(batch?.domFallbackPages || 0) > 0;
+}
+
 function hasMeaningfulVideoRecords(store, batchId) {
+  const batch = store.captureBatches.find((entry) => entry.id === batchId);
   const records = getBatchRecords(store, batchId);
-  if (isSuspiciousRankingQuality(records)) {
+  if (!isDomFallbackBatch(batch) && isSuspiciousRankingQuality(records)) {
     return false;
   }
 
   const strongVideoRows = records.filter(
     (record) => record.videoTitle || record.videoPublishedAt || record.videoCountRange
   ).length;
-  return strongVideoRows >= 3;
+  return isDomFallbackBatch(batch) ? records.length >= 80 : strongVideoRows >= 3;
 }
 
 function hasRankingStart(store, batchId) {
@@ -296,8 +301,11 @@ function getLatestTrustedBatchesFast(categoryId, limit = 2) {
     const records = readRecordsByBatchIds([batch.id]);
     if (
       records.some((record) => Number(record.rank) === 1) &&
-      !isSuspiciousRankingQuality(records) &&
-      records.filter((record) => record.videoTitle || record.videoPublishedAt || record.videoCountRange).length >= 3
+      (isDomFallbackBatch(batch) || !isSuspiciousRankingQuality(records)) &&
+      (
+        isDomFallbackBatch(batch) ||
+        records.filter((record) => record.videoTitle || record.videoPublishedAt || record.videoCountRange).length >= 3
+      )
     ) {
       trusted.push(batch);
     }
@@ -389,6 +397,8 @@ export function saveCapture(payload) {
     sourceUrl: payload.sourceUrl || "",
     capturedAt: payload.capturedAt || getNowIso(),
     captureSchemaVersion: Number(payload.captureSchemaVersion || 0),
+    captureFallbackMode: payload.captureFallbackMode || "",
+    domFallbackPages: Number(payload.domFallbackPages || 0),
     latestApiCapturedAt: Number(payload.latestApiCapturedAt || 0),
     pageLimit: Number(payload.pageLimit || 10),
     recordCount: Array.isArray(payload.records) ? payload.records.length : 0,
@@ -397,7 +407,7 @@ export function saveCapture(payload) {
 
   const normalized = (payload.records || []).map((entry) => sanitizeRecord(entry, batch));
 
-  if (pageLimit >= 10 && isSuspiciousRankingQuality(normalized)) {
+  if (pageLimit >= 10 && !isDomFallbackBatch(batch) && isSuspiciousRankingQuality(normalized)) {
     const error = new Error(
       "采集结果疑似不是短视频榜单数据，已拒绝写入。请刷新罗盘页面，确认停留在短视频榜 / 实时数据后重试。"
     );
