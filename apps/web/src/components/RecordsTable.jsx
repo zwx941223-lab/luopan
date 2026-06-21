@@ -184,6 +184,11 @@ function getDisplayProductUrl(row) {
   return productUrl;
 }
 
+function getCompassDetailUrl(row) {
+  const url = String(row.compassDetailUrl || "").trim();
+  return /^(https?:)?\/\//i.test(url) ? url : "";
+}
+
 function renderDiffItems(row) {
   const items = (Array.isArray(row.diffItems) ? row.diffItems : []).filter((item) => {
     const text = `${item?.kind || ""} ${item?.label || ""} ${item?.text || ""}`;
@@ -203,9 +208,9 @@ function renderDiffItems(row) {
         <span key={`${item.kind}-${item.previous}-${item.current}`} className={`range-change ${item.direction || ""}`}>
           <b>{item.label}</b>
           <span className="range-change-flow">
-            <em>前 {formatRange(item.previous)}</em>
+            <em>原 {formatRange(item.previous)}</em>
             <strong>{item.direction === "down" ? "↓" : item.direction === "up" ? "↑" : "→"}</strong>
-            <em>后 {formatRange(item.current)}</em>
+            <em>新 {formatRange(item.current)}</em>
           </span>
         </span>
       ))}
@@ -261,6 +266,7 @@ export function RecordsTable({ rows, onPreviewVideo }) {
             <th>短视频成交件数</th>
             <th>区间变化</th>
             <th>状态标签</th>
+            <th>查看详情</th>
           </tr>
         </thead>
         <tbody>
@@ -268,6 +274,7 @@ export function RecordsTable({ rows, onPreviewVideo }) {
             const videos = buildUniqueVideos(row.videos || []);
             const displayProductImage = getDisplayProductImage(row);
             const displayProductUrl = getDisplayProductUrl(row);
+            const compassDetailUrl = getCompassDetailUrl(row);
 
             return (
               <tr key={row.id}>
@@ -332,6 +339,15 @@ export function RecordsTable({ rows, onPreviewVideo }) {
                 <td>{formatRange(row.orderRange)}</td>
                 <td>{renderDiffItems(row)}</td>
                 <td>{renderStatusTags(row)}</td>
+                <td>
+                  {compassDetailUrl ? (
+                    <a className="detail-link" href={compassDetailUrl} target="_blank" rel="noreferrer">
+                      查看详情
+                    </a>
+                  ) : (
+                    <span className="muted-inline">-</span>
+                  )}
+                </td>
               </tr>
             );
           })}

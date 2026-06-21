@@ -1186,6 +1186,25 @@ select:disabled {
   color: var(--blue);
 }
 
+.detail-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 70px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.detail-link:hover {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
 .product-cell p {
   margin: 0 0 3px;
   font-size: 12px;

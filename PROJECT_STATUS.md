@@ -1,5 +1,10 @@
 # DY Monitor Project Status
 
+## 2026-06-21 - plugin-v4.0.6 + web-v1.8.2
+
+- Added `compassDetailUrl` capture for Luopan `查看详情` links and displayed it as a separate table action.
+- Replaced the old `首次上榜` filter with `今日新增`, calculated from today's first captured batch as the baseline.
+
 ## 2026-06-21 - web-v1.8.1 ranking detail speedup
 
 - Added a 30-second selected-category ranking rows cache to speed repeated page loads and filter switches.

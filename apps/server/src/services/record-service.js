@@ -2,6 +2,7 @@ import { nanoid } from "nanoid";
 import {
   appendCaptureBatch,
   readDiagnostics,
+  readBatchesByCategorySince,
   readBatchesByCategory,
   readCaptureBatches,
   readCategories,
@@ -19,6 +20,7 @@ import {
 } from "../data/store.js";
 import { config } from "../config.js";
 import { getNowIso, isAfter, subtractHours, toHourKey } from "../utils/time.js";
+import dayjs from "dayjs";
 import {
   STANDARD_CATEGORIES,
   findStandardCategoryById,
@@ -179,6 +181,7 @@ function sanitizeRecord(input, batch) {
     productId: input.productId || "",
     productName: input.productName || "",
     productUrl: input.productUrl || "",
+    compassDetailUrl: input.compassDetailUrl || input.detailUrl || "",
     productImage: input.productImage || "",
     shopName: input.shopName || "",
     shopUrl: input.shopUrl || "",
@@ -642,6 +645,7 @@ function buildRecordBackfillIndex(records) {
     if (!index.has(key)) {
       index.set(key, {
         productImage: "",
+        compassDetailUrl: "",
         paymentRange: "",
         clickRange: "",
         orderRange: "",
@@ -651,6 +655,7 @@ function buildRecordBackfillIndex(records) {
 
     const entry = index.get(key);
     entry.productImage ||= record.productImage || "";
+    entry.compassDetailUrl ||= record.compassDetailUrl || "";
     entry.paymentRange ||= record.paymentRange || "";
     entry.clickRange ||= record.clickRange || "";
     entry.orderRange ||= record.orderRange || "";
@@ -699,6 +704,7 @@ function backfillRecordForDisplay(record, backfillIndex) {
   return {
     ...record,
     productImage: record.productImage || fill.productImage || "",
+    compassDetailUrl: record.compassDetailUrl || fill.compassDetailUrl || "",
     paymentRange: record.paymentRange || fill.paymentRange || "",
     clickRange: record.clickRange || fill.clickRange || "",
     orderRange: record.orderRange || fill.orderRange || "",
@@ -923,6 +929,7 @@ function buildRankingRawRow(record, previous, latestBatches) {
     productId: record.productId,
     productName: record.productName,
     productUrl: record.productUrl,
+    compassDetailUrl: record.compassDetailUrl || "",
     productImage: record.productImage,
     shopName: record.shopName,
     shopUrl: record.shopUrl,
@@ -953,6 +960,70 @@ function buildRankingRawRow(record, previous, latestBatches) {
   };
 }
 
+function makeTodayStartIso() {
+  return dayjs().startOf("day").toISOString();
+}
+
+function buildTodayNewRows(categoryId, latestBatches) {
+  const dayBatches = readBatchesByCategorySince(categoryId, makeTodayStartIso(), 200)
+    .filter(isTrustedBatch);
+  if (dayBatches.length < 2) {
+    return [];
+  }
+
+  const batchIds = dayBatches.map((batch) => batch.id);
+  const records = readRecordsByCategoryAndBatchIds(categoryId, batchIds)
+    .filter((record) => isShortVideoRanking(record.rankingType))
+    .filter((record) => record.productName || record.videoTitle)
+    .filter((record) => !isHeaderLikeRecord(record));
+  const baselineBatchId = dayBatches[0]?.id;
+  const baselineKeys = new Set(
+    records
+      .filter((record) => record.batchId === baselineBatchId)
+      .map(makeRecordKey)
+      .filter(Boolean)
+  );
+  const firstSeenByKey = new Map();
+  const latestByKey = new Map();
+
+  for (const batch of dayBatches.slice(1)) {
+    const batchRecords = records
+      .filter((record) => record.batchId === batch.id)
+      .sort((left, right) => left.rank - right.rank);
+
+    for (const record of batchRecords) {
+      const key = makeRecordKey(record);
+      if (!key || baselineKeys.has(key)) {
+        continue;
+      }
+      if (!firstSeenByKey.has(key)) {
+        firstSeenByKey.set(key, record);
+      }
+      latestByKey.set(key, record);
+    }
+  }
+
+  const backfillIndex = buildRecordBackfillIndex(records);
+  const rows = [...firstSeenByKey.entries()]
+    .map(([key, firstRecord]) => {
+      const latestRecord = latestByKey.get(key) || firstRecord;
+      const filledLatest = backfillRecordForDisplay(latestRecord, backfillIndex);
+      const filledFirst = backfillRecordForDisplay(firstRecord, backfillIndex);
+      return {
+        ...buildRankingRawRow(filledLatest, filledFirst, latestBatches),
+        isTodayNew: true,
+        isCompassFirstListed: true,
+        firstSeenAt: firstRecord.capturedAt || "",
+        firstSeenBatchId: firstRecord.batchId || "",
+        firstRank: firstRecord.rank || "",
+        statusTags: ["今日新增"]
+      };
+    })
+    .sort((left, right) => String(right.firstSeenAt || "").localeCompare(String(left.firstSeenAt || "")) || left.rank - right.rank);
+  const qualitySummary = buildQualitySummary(rows);
+  return rows.map((row) => ({ ...row, qualitySummary }));
+}
+
 export function getRankingRows(user, filters = {}) {
   if (filters.categoryId && !filters.captureHour) {
     const allowedCategoryIds = new Set(getCategoriesForUser(user).map((entry) => entry.id));
@@ -960,13 +1031,18 @@ export function getRankingRows(user, filters = {}) {
       return [];
     }
 
-    const cacheKey = `${user.id || ""}:${filters.categoryId}`;
+    const cacheKey = `${user.id || ""}:${filters.categoryId}:${filters.viewMode || "all"}`;
     const cached = rankingRowsCache.get(cacheKey);
     if (cached && Date.now() - cached.createdAt < RANKING_ROWS_CACHE_MS) {
       return cached.rows;
     }
 
     const latestBatches = getLatestTrustedBatchesFast(filters.categoryId, 2);
+    if (filters.viewMode === "firstListed" || filters.viewMode === "todayNew") {
+      const rows = buildTodayNewRows(filters.categoryId, latestBatches);
+      rankingRowsCache.set(cacheKey, { createdAt: Date.now(), rows });
+      return rows;
+    }
     const batchRecords = readRecordsByBatchIds(latestBatches.map((batch) => batch.id))
       .filter((record) => isShortVideoRanking(record.rankingType))
       .filter((record) => record.productName || record.videoTitle)
@@ -1117,6 +1193,7 @@ export function getRankingRows(user, filters = {}) {
         productId: primary.productId,
         productName: primary.productName,
         productUrl: primary.productUrl,
+        compassDetailUrl: primary.compassDetailUrl || "",
         productImage: primary.productImage,
         shopName: primary.shopName,
         shopUrl: primary.shopUrl,

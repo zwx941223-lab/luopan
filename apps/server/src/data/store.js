@@ -275,6 +275,18 @@ export function readBatchesByCategory(categoryId, limit = 20) {
   return rows.map((row) => parseJson(row.data, {}));
 }
 
+export function readBatchesByCategorySince(categoryId, sinceIso, limit = 200) {
+  const database = openDb();
+  const rows = database.prepare(`
+    SELECT data
+    FROM capture_batches
+    WHERE category_id = ? AND captured_at >= ?
+    ORDER BY captured_at ASC
+    LIMIT ?
+  `).all(String(categoryId || ""), String(sinceIso || ""), Number(limit || 200));
+  return rows.map((row) => parseJson(row.data, {}));
+}
+
 export function readRecordsByBatchIds(batchIds) {
   const ids = [...new Set((batchIds || []).map((id) => String(id || "").trim()).filter(Boolean))];
   if (!ids.length) {

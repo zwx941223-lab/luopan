@@ -52,13 +52,13 @@ export function RankingPage() {
   const activeCategory = categoryOptions.find((item) => item.id === effectiveCategoryId);
   const refreshKey = searchParams.get("refresh") || "";
   const records = useDashboardData(
-    (authToken) => fetchRankingRows(authToken, effectiveCategoryId, refreshKey),
-    [effectiveCategoryId, refreshKey]
+    (authToken) => fetchRankingRows(authToken, effectiveCategoryId, refreshKey, viewMode),
+    [effectiveCategoryId, refreshKey, viewMode]
   );
   const rawRows = records.data || [];
   const rows = useMemo(() => {
     if (viewMode === "firstListed") {
-      return rawRows.filter((item) => item.isCompassFirstListed);
+      return rawRows;
     }
     if (viewMode === "changed") {
       return rawRows.filter(hasVisibleDiffItems);
@@ -202,7 +202,7 @@ export function RankingPage() {
                 className={viewMode === "firstListed" ? "segment active" : "segment"}
                 onClick={() => setViewMode("firstListed")}
               >
-                首次上榜
+                今日新增
               </button>
             </div>
             <div className="compare-note">
@@ -222,7 +222,7 @@ export function RankingPage() {
           empty={!rows.length}
           emptyMessage={
             viewMode === "firstListed"
-              ? "当前筛选下没有首次上榜商品。"
+              ? "当前筛选下没有今日新增商品。"
               : viewMode === "changed"
                 ? "当前筛选下没有变化商品。"
                 : "当前暂无榜单明细数据。"

@@ -37,7 +37,8 @@ router.get("/ranking-rows", requireAuth, (req, res) => {
   const startedAt = Date.now();
   const rows = getRankingRows(req.user, {
     categoryId: req.query.categoryId,
-    captureHour: req.query.captureHour
+    captureHour: req.query.captureHour,
+    viewMode: req.query.viewMode
   });
   return timedJson(res, startedAt, rows);
 });

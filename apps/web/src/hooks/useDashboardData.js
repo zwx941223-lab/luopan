@@ -43,10 +43,13 @@ export function fetchRecords(token, categoryId = "") {
   return apiRequest(`/monitor/records${query}`, { token });
 }
 
-export function fetchRankingRows(token, categoryId = "", refreshKey = "") {
+export function fetchRankingRows(token, categoryId = "", refreshKey = "", viewMode = "") {
   const params = new URLSearchParams();
   if (categoryId) {
     params.set("categoryId", categoryId);
+  }
+  if (viewMode) {
+    params.set("viewMode", viewMode);
   }
   params.set("_", refreshKey || String(Date.now()));
   return apiRequest(`/monitor/ranking-rows?${params.toString()}`, { token });
