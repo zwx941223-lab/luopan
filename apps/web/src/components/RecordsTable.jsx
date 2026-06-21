@@ -144,25 +144,6 @@ function buildUniqueVideos(videos = []) {
   return items;
 }
 
-function looksLikeShopLogo(url = "") {
-  const text = String(url || "");
-  if (/ecom-shop-material/i.test(text)) {
-    return false;
-  }
-  return /logo|avatar|shop|store/i.test(text);
-}
-
-function getDisplayProductImage(row) {
-  const productImage = String(row.productImage || "").trim();
-  if (!productImage || looksLikeShopLogo(productImage)) {
-    return "";
-  }
-  if (/rank|ranking|top|badge|medal|crown|champion|first|second|third/i.test(productImage)) {
-    return "";
-  }
-  return productImage;
-}
-
 function getDisplayProductUrl(row) {
   const productId = String(row.productId || "").trim();
   if (productId) {
@@ -318,7 +299,7 @@ export function RecordsTable({ rows, onPreviewVideo }) {
         <tbody>
           {rows.map((row) => {
             const videos = buildUniqueVideos(row.videos || []);
-            const displayProductImage = getDisplayProductImage(row);
+            const displayProductImage = String(row.productImage || "").trim();
             const displayProductUrl = getDisplayProductUrl(row);
 
             return (

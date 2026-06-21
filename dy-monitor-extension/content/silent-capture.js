@@ -543,49 +543,6 @@
     return /\.(?:png|jpe?g|webp|gif)(?:\?|$)|tplv-|image\.image|douyinpic\.com\/img/i.test(url);
   }
 
-  function looksLikeRankBadgeUrl(value) {
-    const url = String(value || "").toLowerCase();
-    return /rank|ranking|top|badge|medal|crown|champion|first|second|third/.test(url);
-  }
-
-  function looksLikeProductImageUrl(value) {
-    const url = String(value || "").trim();
-    if (!url || !looksLikeImageUrl(url)) return false;
-    if (looksLikeRankBadgeUrl(url)) return false;
-    if (/avatar|logo|shop|store|qrcode|aweme-qrcode/i.test(url)) return false;
-    return true;
-  }
-
-  function normalizeImageUrl(value) {
-    const text = String(value || "").trim();
-    if (!text) return "";
-    const cssMatch = text.match(/url\((['"]?)(.*?)\1\)/i);
-    const raw = cssMatch ? cssMatch[2] : text.split(/\s+/)[0];
-    if (!/^(https?:)?\/\//i.test(raw)) return "";
-    return raw.startsWith("//") ? `https:${raw}` : raw;
-  }
-
-  function imageCandidatesFromElement(element) {
-    const candidates = [];
-    const attrs = ["src", "data-src", "data-original", "data-url", "data-lazy-src", "data-lazyload", "lazy-src"];
-    for (const attr of attrs) {
-      candidates.push(normalizeImageUrl(element.getAttribute?.(attr)));
-    }
-    const srcset = element.getAttribute?.("srcset") || element.getAttribute?.("data-srcset") || "";
-    for (const item of srcset.split(",")) {
-      candidates.push(normalizeImageUrl(item.trim().split(/\s+/)[0]));
-    }
-    candidates.push(normalizeImageUrl(element.style?.backgroundImage));
-    candidates.push(normalizeImageUrl(getComputedStyle(element).backgroundImage));
-    return candidates.filter(Boolean);
-  }
-
-  function firstProductImageFromElement(root) {
-    return Array.from(root.querySelectorAll("img, [style], [data-src], [data-original], [data-url], [data-lazy-src], [data-srcset]"))
-      .flatMap(imageCandidatesFromElement)
-      .find(looksLikeProductImageUrl) || "";
-  }
-
   function normalizeRank(rawRank, page, index) {
     const fallback = (page - 1) * 10 + index + 1;
     const parsed = Number(rawRank || 0);
@@ -724,7 +681,7 @@
       productId: getByKeysDeep(item, ["productId", "product_id", "goodsId", "goods_id", "itemId", "item_id", "id"]),
       productName,
       productUrl: getByKeyFragmentsDeep(item, ["producturl", "detailurl", "schema", "href", "link"]),
-      productImage: looksLikeProductImageUrl(productImage) ? productImage : "",
+      productImage: productImage,
       shopName: getByKeysDeep(item, ["shopName", "shop_name", "storeName", "store_name"]),
       shopUrl: getByKeyFragmentsDeep(item, ["shopurl", "storeurl"]),
       videoId: videos[0]?.videoId || fallbackVideoId,
@@ -791,7 +748,7 @@
         const firstRank = Number((cells.find((cell) => /^\s*\d+\s*$/.test(cell)) || "").replace(/[^\d]/g, ""));
         const rank = normalizeRank(firstRank, page, index);
         const ranges = cells.map((cell) => cell.replace(/\s+/g, "")).filter(isMetricRange);
-        const image = firstProductImageFromElement(row);
+        const image = row.querySelector("img[src]")?.src || "";
         const productName = cells.find((cell) => {
           const compactCell = compact(cell);
           if (!compactCell || /^\d+$/.test(compactCell) || isMetricRange(compactCell)) return false;

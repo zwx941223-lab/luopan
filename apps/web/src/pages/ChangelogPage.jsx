@@ -3,6 +3,13 @@ import { APP_VERSION } from "../config.js";
 
 const logs = [
   {
+    version: "web-v1.9.0 / plugin-v4.0.9",
+    date: "2026-06-22",
+    items: [
+      "完全恢复 xf1 商品图链路：插件、服务端、网页端均不再对商品图做二次过滤，采集到的 productImage 原样保存和展示。"
+    ]
+  },
+  {
     version: "web-v1.9.0 / plugin-v4.0.8",
     date: "2026-06-22",
     items: [
