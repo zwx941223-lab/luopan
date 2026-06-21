@@ -26,6 +26,8 @@ import {
 } from "../constants/standard-categories.js";
 
 const SHORT_VIDEO_RANKING = "\u77ed\u89c6\u9891\u699c";
+const rankingRowsCache = new Map();
+const RANKING_ROWS_CACHE_MS = 30_000;
 
 function isObjectPlaceholderText(value) {
   return String(value || "").replace(/\s+/g, "").toLowerCase() === "[objectobject]";
@@ -438,6 +440,7 @@ export function saveCapture(payload) {
     });
   }
 
+  rankingRowsCache.clear();
   return batch;
 }
 
@@ -815,6 +818,20 @@ function buildQualitySummary(rows) {
   };
 }
 
+function hasDisplayGaps(records) {
+  return (records || []).some((record) => {
+    const videos = uniqueVideos([record]);
+    return (
+      !String(record.productImage || "").trim() ||
+      !String(record.paymentRange || "").trim() ||
+      !String(record.clickRange || "").trim() ||
+      !String(record.orderRange || "").trim() ||
+      !videos.length ||
+      videos.some((video) => !String(video.videoCover || "").trim() || !String(video.videoPublishedAt || "").trim())
+    );
+  });
+}
+
 function parseRangeLevelForRawRows(value) {
   return parseCleanRangeLevel(value);
 }
@@ -943,13 +960,22 @@ export function getRankingRows(user, filters = {}) {
       return [];
     }
 
+    const cacheKey = `${user.id || ""}:${filters.categoryId}`;
+    const cached = rankingRowsCache.get(cacheKey);
+    if (cached && Date.now() - cached.createdAt < RANKING_ROWS_CACHE_MS) {
+      return cached.rows;
+    }
+
     const latestBatches = getLatestTrustedBatchesFast(filters.categoryId, 2);
     const batchRecords = readRecordsByBatchIds(latestBatches.map((batch) => batch.id))
       .filter((record) => isShortVideoRanking(record.rankingType))
       .filter((record) => record.productName || record.videoTitle)
       .filter((record) => !isHeaderLikeRecord(record));
-    const backfillRecords = readRecentRecordsByCategory(filters.categoryId, 1200)
-      .filter((record) => isShortVideoRanking(record.rankingType));
+    const needsBackfill = hasDisplayGaps(batchRecords);
+    const backfillRecords = needsBackfill
+      ? readRecentRecordsByCategory(filters.categoryId, 600)
+          .filter((record) => isShortVideoRanking(record.rankingType))
+      : batchRecords;
     const backfillIndex = buildRecordBackfillIndex(backfillRecords);
     const currentBatchId = latestBatches[0]?.id || null;
     const previousBatchId = latestBatches[1]?.id || null;
@@ -970,7 +996,9 @@ export function getRankingRows(user, filters = {}) {
       .sort((left, right) => left.rank - right.rank)
       .map((record) => buildRankingRawRow(record, previousByKey.get(makeRecordKey(record)), latestBatches));
     const qualitySummary = buildQualitySummary(rawRows);
-    return rawRows.map((row) => ({ ...row, qualitySummary }));
+    const rows = rawRows.map((row) => ({ ...row, qualitySummary }));
+    rankingRowsCache.set(cacheKey, { createdAt: Date.now(), rows });
+    return rows;
   }
 
   const records = getVisibleRecords(user, filters);

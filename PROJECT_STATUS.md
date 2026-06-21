@@ -1,5 +1,10 @@
 # DY Monitor Project Status
 
+## 2026-06-21 - web-v1.8.1 ranking detail speedup
+
+- Added a 30-second selected-category ranking rows cache to speed repeated page loads and filter switches.
+- Changed ranking detail backfill to run only when latest batch rows have missing display fields, and reduced the fallback scan window.
+
 ## 2026-06-21 - plugin-v4.0.5 manual start
 
 - Removed the panel auto-start timer on page open.
