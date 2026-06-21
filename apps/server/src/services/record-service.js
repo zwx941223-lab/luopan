@@ -1,13 +1,18 @@
 import { nanoid } from "nanoid";
 import {
   appendCaptureBatch,
+  readDiagnostics,
   readBatchesByCategory,
   readCaptureBatches,
   readCategories,
   readCategoryStats,
+  readLatestCaptureHours,
   readOverviewStats,
   readRecentRecordsByCategory,
   readRecordsByBatchIds,
+  readRecordsByCategoryAndBatchIds,
+  readRecordsByCategoryHour,
+  readRecordsByRankingHour,
   readStore,
   readUserIds,
   updateStore
@@ -496,8 +501,35 @@ export function getCategoriesForUser(user) {
 }
 
 export function getVisibleRecords(user, filters = {}) {
-  const store = readStore();
   const allowedCategoryIds = new Set(getCategoriesForUser(user).map((entry) => entry.id));
+
+  if (filters.categoryId && !allowedCategoryIds.has(String(filters.categoryId))) {
+    return [];
+  }
+
+  if (filters.categoryId && filters.captureHour) {
+    return readRecordsByCategoryHour(filters.categoryId, filters.captureHour, 500)
+      .filter((record) => isShortVideoRanking(record.rankingType))
+      .filter((record) => record.productName || record.videoTitle)
+      .filter((record) => !isHeaderLikeRecord(record))
+      .sort((left, right) => left.rank - right.rank);
+  }
+
+  if (filters.categoryId && !filters.captureHour) {
+    const latestBatches = getLatestTrustedBatchesFast(filters.categoryId, 1);
+    const latestBatch = latestBatches[0];
+    if (!latestBatch) {
+      return [];
+    }
+
+    return readRecordsByCategoryAndBatchIds(filters.categoryId, [latestBatch.id])
+      .filter((record) => isShortVideoRanking(record.rankingType))
+      .filter((record) => record.productName || record.videoTitle)
+      .filter((record) => !isHeaderLikeRecord(record))
+      .sort((left, right) => left.rank - right.rank);
+  }
+
+  const store = readStore();
   let records = store.records
     .filter((record) => allowedCategoryIds.has(String(record.categoryId || "")))
     .filter((record) => isShortVideoRanking(record.rankingType))
@@ -1093,8 +1125,7 @@ export function getRankingRows(user, filters = {}) {
 }
 
 export function getLatestBatchByCategory(categoryId) {
-  const store = readStore();
-  return getLatestTrustedBatches(store, categoryId, 1)[0];
+  return getLatestTrustedBatchesFast(categoryId, 1)[0];
 }
 
 export function getOverview(user) {
@@ -1111,7 +1142,6 @@ export function getOverview(user) {
 }
 
 export function getHourlyDiffs(user, categoryId) {
-  const store = readStore();
   const allowedCategoryIds = new Set(getCategoriesForUser(user).map((entry) => entry.id));
   let records;
   let currentBatchId = null;
@@ -1120,17 +1150,19 @@ export function getHourlyDiffs(user, categoryId) {
   let previousLabel = null;
 
   if (categoryId) {
-    const latestBatches = getLatestTrustedBatches(store, categoryId, 2);
+    if (!allowedCategoryIds.has(String(categoryId))) {
+      return { currentHour: null, previousHour: null, newcomers: [], shifts: [] };
+    }
+
+    const latestBatches = getLatestTrustedBatchesFast(categoryId, 2);
     const allowedBatchIds = new Set(latestBatches.map((batch) => batch.id));
     currentBatchId = latestBatches[0]?.id || null;
     previousBatchId = latestBatches[1]?.id || null;
     currentLabel = latestBatches[0]?.capturedAt || null;
     previousLabel = latestBatches[1]?.capturedAt || null;
 
-    records = store.records
-      .filter((record) => allowedCategoryIds.has(String(record.categoryId || "")))
+    records = readRecordsByCategoryAndBatchIds(categoryId, [...allowedBatchIds])
       .filter((record) => isShortVideoRanking(record.rankingType))
-      .filter((record) => String(record.categoryId || "") === String(categoryId))
       .filter((record) => allowedBatchIds.has(record.batchId))
       .filter((record) => record.productName || record.videoTitle)
       .sort((left, right) => {
@@ -1140,7 +1172,13 @@ export function getHourlyDiffs(user, categoryId) {
         return left.captureHour < right.captureHour ? 1 : -1;
       });
   } else {
-    records = getVisibleRecords(user, { categoryId });
+    const hours = readLatestCaptureHours(SHORT_VIDEO_RANKING, 2);
+    records = hours
+      .flatMap((hour) => readRecordsByRankingHour(SHORT_VIDEO_RANKING, hour, 5000))
+      .filter((record) => allowedCategoryIds.has(String(record.categoryId || "")))
+      .filter((record) => isShortVideoRanking(record.rankingType))
+      .filter((record) => record.productName || record.videoTitle)
+      .filter((record) => !isHeaderLikeRecord(record));
   }
 
   if (categoryId && currentBatchId) {
@@ -1289,4 +1327,8 @@ export function getCaptureHistory(user, options = {}) {
     .filter((entry) => allowedCategoryIds.has(String(entry.categoryId || "")))
     .filter(isTrustedBatch)
     .sort((left, right) => (left.capturedAt < right.capturedAt ? 1 : -1));
+}
+
+export function getDiagnostics() {
+  return readDiagnostics();
 }

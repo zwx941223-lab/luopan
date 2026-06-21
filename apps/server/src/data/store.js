@@ -12,6 +12,8 @@ const DEFAULT_ADMIN_NAME = "\u7cfb\u7edf\u7ba1\u7406\u5458";
 const DEFAULT_OPERATOR_NAME = "\u8fd0\u8425A";
 
 let db;
+let categoryStatsCache = null;
+let categoryStatsCacheAt = 0;
 
 function nowIso() {
   return new Date().toISOString();
@@ -136,6 +138,8 @@ function openDb() {
       CREATE INDEX IF NOT EXISTS idx_batches_category_captured ON capture_batches(category_id, captured_at DESC);
       CREATE INDEX IF NOT EXISTS idx_records_batch_rank ON records(batch_id, rank);
       CREATE INDEX IF NOT EXISTS idx_records_category_hour ON records(category_id, capture_hour);
+      CREATE INDEX IF NOT EXISTS idx_records_ranking_hour ON records(ranking_type, capture_hour);
+      CREATE INDEX IF NOT EXISTS idx_records_category_captured ON records(category_id, captured_at DESC);
       CREATE INDEX IF NOT EXISTS idx_records_product ON records(category_id, product_id, product_name, shop_name);
     `);
     migrateFromJsonIfNeeded();
@@ -215,6 +219,11 @@ export function readUserIds() {
 }
 
 export function readCategoryStats() {
+  const now = Date.now();
+  if (categoryStatsCache && now - categoryStatsCacheAt < 45_000) {
+    return new Map(categoryStatsCache);
+  }
+
   const database = openDb();
   const recordRows = database.prepare(`
     SELECT category_id AS categoryId, COUNT(*) AS recordCount
@@ -249,6 +258,8 @@ export function readCategoryStats() {
     stats.set(categoryId, current);
   }
 
+  categoryStatsCache = new Map(stats);
+  categoryStatsCacheAt = now;
   return stats;
 }
 
@@ -290,6 +301,58 @@ export function readRecentRecordsByCategory(categoryId, limit = 1200) {
     LIMIT ?
   `).all(String(categoryId || ""), Number(limit || 1200));
   return rows.map((row) => parseJson(row.data, {}));
+}
+
+export function readRecordsByCategoryAndBatchIds(categoryId, batchIds) {
+  const ids = [...new Set((batchIds || []).map((id) => String(id || "").trim()).filter(Boolean))];
+  if (!ids.length) {
+    return [];
+  }
+
+  const database = openDb();
+  const rows = database.prepare(`
+    SELECT data
+    FROM records
+    WHERE category_id = ? AND batch_id IN (${makePlaceholders(ids)})
+    ORDER BY captured_at DESC, rank ASC
+  `).all(String(categoryId || ""), ...ids);
+  return rows.map((row) => parseJson(row.data, {}));
+}
+
+export function readRecordsByCategoryHour(categoryId, captureHour, limit = 500) {
+  const database = openDb();
+  const rows = database.prepare(`
+    SELECT data
+    FROM records
+    WHERE category_id = ? AND capture_hour = ?
+    ORDER BY rank ASC
+    LIMIT ?
+  `).all(String(categoryId || ""), String(captureHour || ""), Number(limit || 500));
+  return rows.map((row) => parseJson(row.data, {}));
+}
+
+export function readRecordsByRankingHour(rankingType, captureHour, limit = 5000) {
+  const database = openDb();
+  const rows = database.prepare(`
+    SELECT data
+    FROM records
+    WHERE ranking_type = ? AND capture_hour = ?
+    ORDER BY category_id ASC, rank ASC
+    LIMIT ?
+  `).all(String(rankingType || ""), String(captureHour || ""), Number(limit || 5000));
+  return rows.map((row) => parseJson(row.data, {}));
+}
+
+export function readLatestCaptureHours(rankingType, limit = 2) {
+  const database = openDb();
+  return database.prepare(`
+    SELECT capture_hour AS captureHour
+    FROM records
+    WHERE ranking_type = ?
+    GROUP BY capture_hour
+    ORDER BY capture_hour DESC
+    LIMIT ?
+  `).all(String(rankingType || ""), Number(limit || 2)).map((row) => row.captureHour);
 }
 
 export function readOverviewStats(rankingType) {
@@ -428,6 +491,15 @@ export function appendCaptureBatch({ category, batch, records, cutoff }) {
       );
     }
   });
+  categoryStatsCache = null;
+  categoryStatsCacheAt = 0;
+  if (cutoff) {
+    try {
+      openDb().exec("PRAGMA wal_checkpoint(PASSIVE)");
+    } catch {
+      // Checkpoint is a maintenance optimization; failed checkpoints should not block capture.
+    }
+  }
 }
 
 function runInTransaction(callback) {
@@ -529,6 +601,8 @@ export function writeStore(store) {
 
     upsertSetting.run(JSON.stringify(normalized.settings));
   });
+  categoryStatsCache = null;
+  categoryStatsCacheAt = 0;
 }
 
 export function updateStore(updater) {
@@ -536,6 +610,29 @@ export function updateStore(updater) {
   const next = updater(current);
   writeStore(next);
   return normalizeStore(next);
+}
+
+export function readDiagnostics() {
+  const database = openDb();
+  const count = (tableName) => Number(database.prepare(`SELECT COUNT(*) AS count FROM ${tableName}`).get().count || 0);
+  const fileSize = (file) => {
+    try {
+      return fs.existsSync(file) ? fs.statSync(file).size : 0;
+    } catch {
+      return 0;
+    }
+  };
+
+  return {
+    categories: count("categories"),
+    captureBatches: count("capture_batches"),
+    records: count("records"),
+    sqliteBytes: fileSize(DB_FILE),
+    walBytes: fileSize(`${DB_FILE}-wal`),
+    shmBytes: fileSize(`${DB_FILE}-shm`),
+    historyRetentionHours: config.historyRetentionHours,
+    categoryStatsCacheAgeMs: categoryStatsCacheAt ? Date.now() - categoryStatsCacheAt : null
+  };
 }
 
 export const storePaths = {

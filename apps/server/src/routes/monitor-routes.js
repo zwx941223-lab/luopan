@@ -3,6 +3,7 @@ import ExcelJS from "exceljs";
 import { requireAuth, requireExtensionToken } from "../middleware/auth.js";
 import {
   getCaptureHistory,
+  getDiagnostics,
   getHourlyDiffs,
   getLatestBatchByCategory,
   getOverview,
@@ -13,40 +14,56 @@ import {
 
 const router = Router();
 
+function timedJson(res, startedAt, payload) {
+  res.setHeader("X-DY-Monitor-Duration-Ms", String(Date.now() - startedAt));
+  return res.json(payload);
+}
+
 router.get("/overview", requireAuth, (req, res) => {
-  return res.json(getOverview(req.user));
+  const startedAt = Date.now();
+  return timedJson(res, startedAt, getOverview(req.user));
 });
 
 router.get("/records", requireAuth, (req, res) => {
+  const startedAt = Date.now();
   const records = getVisibleRecords(req.user, {
     categoryId: req.query.categoryId,
     captureHour: req.query.captureHour
   });
-  return res.json(records);
+  return timedJson(res, startedAt, records);
 });
 
 router.get("/ranking-rows", requireAuth, (req, res) => {
+  const startedAt = Date.now();
   const rows = getRankingRows(req.user, {
     categoryId: req.query.categoryId,
     captureHour: req.query.captureHour
   });
-  return res.json(rows);
+  return timedJson(res, startedAt, rows);
 });
 
 router.get("/history", requireAuth, (req, res) => {
-  return res.json(getCaptureHistory(req.user, { limit: req.query.limit }));
+  const startedAt = Date.now();
+  return timedJson(res, startedAt, getCaptureHistory(req.user, { limit: req.query.limit }));
 });
 
 router.get("/diffs", requireAuth, (req, res) => {
-  return res.json(getHourlyDiffs(req.user, req.query.categoryId));
+  const startedAt = Date.now();
+  return timedJson(res, startedAt, getHourlyDiffs(req.user, req.query.categoryId));
 });
 
 router.get("/latest-batch", requireAuth, (req, res) => {
+  const startedAt = Date.now();
   if (!req.query.categoryId) {
     return res.status(400).json({ message: "Missing categoryId" });
   }
 
-  return res.json(getLatestBatchByCategory(req.query.categoryId) || null);
+  return timedJson(res, startedAt, getLatestBatchByCategory(req.query.categoryId) || null);
+});
+
+router.get("/diagnostics", requireAuth, (req, res) => {
+  const startedAt = Date.now();
+  return timedJson(res, startedAt, getDiagnostics());
 });
 
 router.post("/capture/upload", requireExtensionToken, (req, res) => {

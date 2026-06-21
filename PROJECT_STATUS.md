@@ -1,5 +1,12 @@
 # DY Monitor Project Status
 
+## 2026-06-21 - web-v1.8.0 server performance hardening
+
+- Added short-lived category stats caching to avoid full aggregate work on every page/plugin panel load.
+- Replaced common full-store reads for records, diffs, and latest-batch with targeted SQLite queries.
+- Added ranking/hour and category/captured indexes plus passive WAL checkpoint after retention cleanup.
+- Added `/api/monitor/diagnostics` and duration headers to help locate server-side slow requests after long-running collection.
+
 ## 2026-06-21 - plugin-v4.0.4 + web-v1.7.99 delivery
 
 - Restored plugin from `xf1` as the stable baseline before applying the category fix.
