@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import authRoutes from "./routes/auth-routes.js";
 import categoryRoutes from "./routes/category-routes.js";
+import feedbackRoutes from "./routes/feedback-routes.js";
 import monitorRoutes from "./routes/monitor-routes.js";
 import { config } from "./config.js";
 import { readStore } from "./data/store.js";
@@ -30,6 +31,7 @@ app.get("/api/health", (_req, res) => {
 
 app.use("/api/auth", authRoutes);
 app.use("/api/categories", categoryRoutes);
+app.use("/api/feedback", feedbackRoutes);
 app.use("/api/monitor", monitorRoutes);
 
 app.use(express.static(webDistDir));

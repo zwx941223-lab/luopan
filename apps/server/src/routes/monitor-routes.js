@@ -3,11 +3,14 @@ import ExcelJS from "exceljs";
 import { requireAuth, requireExtensionToken } from "../middleware/auth.js";
 import {
   getCaptureHistory,
+  getCaptureHistoryPage,
   getDiagnostics,
   getHourlyDiffs,
+  getHourlyDiffsPage,
   getLatestBatchByCategory,
   getOverview,
   getRankingRows,
+  getRankingRowsPage,
   getVisibleRecords,
   saveCapture
 } from "../services/record-service.js";
@@ -35,22 +38,31 @@ router.get("/records", requireAuth, (req, res) => {
 
 router.get("/ranking-rows", requireAuth, (req, res) => {
   const startedAt = Date.now();
-  const rows = getRankingRows(req.user, {
+  const rows = getRankingRowsPage(req.user, {
     categoryId: req.query.categoryId,
     captureHour: req.query.captureHour,
-    viewMode: req.query.viewMode
+    viewMode: req.query.viewMode,
+    page: req.query.page,
+    pageSize: req.query.pageSize
   });
   return timedJson(res, startedAt, rows);
 });
 
 router.get("/history", requireAuth, (req, res) => {
   const startedAt = Date.now();
-  return timedJson(res, startedAt, getCaptureHistory(req.user, { limit: req.query.limit }));
+  return timedJson(res, startedAt, getCaptureHistoryPage(req.user, {
+    limit: req.query.limit,
+    page: req.query.page,
+    pageSize: req.query.pageSize
+  }));
 });
 
 router.get("/diffs", requireAuth, (req, res) => {
   const startedAt = Date.now();
-  return timedJson(res, startedAt, getHourlyDiffs(req.user, req.query.categoryId));
+  return timedJson(res, startedAt, getHourlyDiffsPage(req.user, req.query.categoryId, {
+    page: req.query.page,
+    pageSize: req.query.pageSize
+  }));
 });
 
 router.get("/latest-batch", requireAuth, (req, res) => {

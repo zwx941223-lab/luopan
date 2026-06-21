@@ -17,12 +17,12 @@ export function OverviewPage() {
             <MetricCard label="当前可见类目" value={overview.data?.categoryCount || 0} accent="gold" />
             <MetricCard label="已有数据类目" value={overview.data?.categoriesWithData || 0} accent="teal" />
             <MetricCard label="未采集到类目" value={missedCategories.length} accent="rose" />
-            <MetricCard label="最新记录数" value={overview.data?.recordCount || 0} />
+            <MetricCard label="今日采集数" value={overview.data?.recordCount || 0} />
           </div>
         </StatusPanel>
       </PageSection>
 
-      <PageSection title="未采集到的类目" subtitle="成功采集后，这里会展示仍然没有数据的类目">
+      <PageSection title="未采集到的类目">
         <StatusPanel loading={categories.loading} error={categories.error} empty={!categoryList.length}>
           {missedCategories.length ? (
             <div className="missed-category-list">

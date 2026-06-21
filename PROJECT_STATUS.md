@@ -1,14 +1,11 @@
 # DY Monitor Project Status
 
-## 2026-06-21 - plugin-v4.0.6 + web-v1.8.2
+## 2026-06-21 - server upload rollback + timer guard
 
-- Added `compassDetailUrl` capture for Luopan `查看详情` links and displayed it as a separate table action.
-- Replaced the old `首次上榜` filter with `今日新增`, calculated from today's first captured batch as the baseline.
-
-## 2026-06-21 - web-v1.8.1 ranking detail speedup
-
-- Added a 30-second selected-category ranking rows cache to speed repeated page loads and filter switches.
-- Changed ranking detail backfill to run only when latest batch rows have missing display fields, and reduced the fallback scan window.
+- Rolled code back to the server-upload package `server-delivery-plugin-v4.0.5-web-v1.8.0-20260621-165113`.
+- Removed the abandoned Compass detail-link experiment from the active code path.
+- Fixed the 90-minute server timer so a timer tick that fires while a round is still running is queued and starts automatically after the current round finishes.
+- Verified plugin syntax checks plus server and web production builds.
 
 ## 2026-06-21 - plugin-v4.0.5 manual start
 

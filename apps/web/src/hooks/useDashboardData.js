@@ -43,23 +43,46 @@ export function fetchRecords(token, categoryId = "") {
   return apiRequest(`/monitor/records${query}`, { token });
 }
 
-export function fetchRankingRows(token, categoryId = "", refreshKey = "", viewMode = "") {
+export function fetchRankingRows(token, categoryId = "", refreshKey = "", options = {}) {
   const params = new URLSearchParams();
   if (categoryId) {
     params.set("categoryId", categoryId);
   }
-  if (viewMode) {
-    params.set("viewMode", viewMode);
+  if (options.viewMode) {
+    params.set("viewMode", options.viewMode);
   }
+  params.set("page", String(options.page || 1));
+  params.set("pageSize", String(options.pageSize || 50));
   params.set("_", refreshKey || String(Date.now()));
   return apiRequest(`/monitor/ranking-rows?${params.toString()}`, { token });
 }
 
-export function fetchDiffs(token, categoryId = "") {
-  const query = categoryId ? `?categoryId=${encodeURIComponent(categoryId)}` : "";
-  return apiRequest(`/monitor/diffs${query}`, { token });
+export function fetchDiffs(token, categoryId = "", options = {}) {
+  const params = new URLSearchParams();
+  if (categoryId) {
+    params.set("categoryId", categoryId);
+  }
+  params.set("page", String(options.page || 1));
+  params.set("pageSize", String(options.pageSize || 50));
+  return apiRequest(`/monitor/diffs?${params.toString()}`, { token });
 }
 
-export function fetchHistory(token) {
-  return apiRequest("/monitor/history?limit=300", { token });
+export function fetchHistory(token, options = {}) {
+  const params = new URLSearchParams();
+  params.set("page", String(options.page || 1));
+  params.set("pageSize", String(options.pageSize || 50));
+  params.set("limit", String(options.limit || 1000));
+  return apiRequest(`/monitor/history?${params.toString()}`, { token });
+}
+
+export function fetchFeedback(token) {
+  return apiRequest("/feedback", { token });
+}
+
+export function submitFeedback(token, content) {
+  return apiRequest("/feedback", {
+    token,
+    method: "POST",
+    body: { content }
+  });
 }

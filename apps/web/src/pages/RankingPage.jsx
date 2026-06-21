@@ -10,13 +10,6 @@ import { APP_VERSION } from "../config.js";
 
 const PAGE_SIZE = 50;
 
-function hasVisibleDiffItems(row) {
-  return (Array.isArray(row.diffItems) ? row.diffItems : []).some((item) => {
-    const text = `${item?.kind || ""} ${item?.label || ""} ${item?.text || ""}`;
-    return item?.kind !== "videoCount" && !/视频数|video\s*count/i.test(text);
-  });
-}
-
 function formatBatchTime(value) {
   if (!value) {
     return "";
@@ -52,27 +45,23 @@ export function RankingPage() {
   const activeCategory = categoryOptions.find((item) => item.id === effectiveCategoryId);
   const refreshKey = searchParams.get("refresh") || "";
   const records = useDashboardData(
-    (authToken) => fetchRankingRows(authToken, effectiveCategoryId, refreshKey, viewMode),
-    [effectiveCategoryId, refreshKey, viewMode]
+    (authToken) => fetchRankingRows(authToken, effectiveCategoryId, refreshKey, {
+      viewMode,
+      page,
+      pageSize: PAGE_SIZE
+    }),
+    [effectiveCategoryId, refreshKey, viewMode, page]
   );
-  const rawRows = records.data || [];
-  const rows = useMemo(() => {
-    if (viewMode === "firstListed") {
-      return rawRows;
-    }
-    if (viewMode === "changed") {
-      return rawRows.filter(hasVisibleDiffItems);
-    }
-    return rawRows;
-  }, [rawRows, viewMode]);
-  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const payload = records.data || {};
+  const rows = Array.isArray(payload) ? payload : payload.items || [];
+  const totalRows = Array.isArray(payload) ? rows.length : Number(payload.total || 0);
+  const totalPages = Math.max(1, Number(payload.totalPages || Math.ceil(totalRows / PAGE_SIZE) || 1));
   const safePage = Math.min(page, totalPages);
-  const pagedRows = rows.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
-  const pageStart = rows.length ? (safePage - 1) * PAGE_SIZE + 1 : 0;
-  const pageEnd = Math.min(rows.length, safePage * PAGE_SIZE);
+  const pageStart = totalRows ? (safePage - 1) * PAGE_SIZE + 1 : 0;
+  const pageEnd = Math.min(totalRows, safePage * PAGE_SIZE);
 
-  const compareCurrentBatchAt = rawRows[0]?.compareCurrentBatchAt || "";
-  const comparePreviousBatchAt = rawRows[0]?.comparePreviousBatchAt || "";
+  const compareCurrentBatchAt = rows[0]?.compareCurrentBatchAt || "";
+  const comparePreviousBatchAt = rows[0]?.comparePreviousBatchAt || "";
   const currentBatchLabel = formatBatchTime(compareCurrentBatchAt);
   const previousBatchLabel = formatBatchTime(comparePreviousBatchAt);
 
@@ -228,11 +217,11 @@ export function RankingPage() {
                 : "当前暂无榜单明细数据。"
           }
         >
-          <RecordsTable rows={pagedRows} />
-          {rows.length > PAGE_SIZE ? (
+          <RecordsTable rows={rows} />
+          {totalRows > PAGE_SIZE ? (
             <div className="table-pagination">
               <span>
-                每页 {PAGE_SIZE} 条，当前 {pageStart}-{pageEnd} / 共 {rows.length} 条
+                每页 {PAGE_SIZE} 条，当前 {pageStart}-{pageEnd} / 共 {totalRows} 条
               </span>
               <div className="pagination-buttons">
                 <button type="button" disabled={safePage <= 1} onClick={() => setPage(1)}>

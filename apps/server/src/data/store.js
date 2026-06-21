@@ -135,12 +135,26 @@ function openDb() {
         shop_name TEXT,
         data TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS feedback (
+        id TEXT PRIMARY KEY,
+        user_id TEXT,
+        username TEXT,
+        display_name TEXT,
+        content TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        data TEXT NOT NULL
+      );
       CREATE INDEX IF NOT EXISTS idx_batches_category_captured ON capture_batches(category_id, captured_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_batches_captured ON capture_batches(captured_at DESC);
       CREATE INDEX IF NOT EXISTS idx_records_batch_rank ON records(batch_id, rank);
+      CREATE INDEX IF NOT EXISTS idx_records_batch ON records(batch_id);
       CREATE INDEX IF NOT EXISTS idx_records_category_hour ON records(category_id, capture_hour);
       CREATE INDEX IF NOT EXISTS idx_records_ranking_hour ON records(ranking_type, capture_hour);
+      CREATE INDEX IF NOT EXISTS idx_records_ranking_captured ON records(ranking_type, captured_at DESC);
       CREATE INDEX IF NOT EXISTS idx_records_category_captured ON records(category_id, captured_at DESC);
       CREATE INDEX IF NOT EXISTS idx_records_product ON records(category_id, product_id, product_name, shop_name);
+      CREATE INDEX IF NOT EXISTS idx_feedback_created ON feedback(created_at DESC);
     `);
     migrateFromJsonIfNeeded();
   }
@@ -275,18 +289,6 @@ export function readBatchesByCategory(categoryId, limit = 20) {
   return rows.map((row) => parseJson(row.data, {}));
 }
 
-export function readBatchesByCategorySince(categoryId, sinceIso, limit = 200) {
-  const database = openDb();
-  const rows = database.prepare(`
-    SELECT data
-    FROM capture_batches
-    WHERE category_id = ? AND captured_at >= ?
-    ORDER BY captured_at ASC
-    LIMIT ?
-  `).all(String(categoryId || ""), String(sinceIso || ""), Number(limit || 200));
-  return rows.map((row) => parseJson(row.data, {}));
-}
-
 export function readRecordsByBatchIds(batchIds) {
   const ids = [...new Set((batchIds || []).map((id) => String(id || "").trim()).filter(Boolean))];
   if (!ids.length) {
@@ -367,16 +369,28 @@ export function readLatestCaptureHours(rankingType, limit = 2) {
   `).all(String(rankingType || ""), Number(limit || 2)).map((row) => row.captureHour);
 }
 
+function getChinaTodayStartIso(date = new Date()) {
+  const chinaOffsetMs = 8 * 60 * 60 * 1000;
+  const chinaNow = new Date(date.getTime() + chinaOffsetMs);
+  const chinaDayStartUtcMs = Date.UTC(
+    chinaNow.getUTCFullYear(),
+    chinaNow.getUTCMonth(),
+    chinaNow.getUTCDate()
+  );
+  return new Date(chinaDayStartUtcMs - chinaOffsetMs).toISOString();
+}
+
 export function readOverviewStats(rankingType) {
   const database = openDb();
   const latest = database.prepare(`
     SELECT capture_hour AS latestHour
     FROM records
     WHERE ranking_type = ?
-    ORDER BY capture_hour DESC
+    ORDER BY captured_at DESC
     LIMIT 1
   `).get(rankingType);
   const latestHour = latest?.latestHour || null;
+  const todayStartIso = getChinaTodayStartIso();
 
   if (!latestHour) {
     return {
@@ -393,8 +407,8 @@ export function readOverviewStats(rankingType) {
       COUNT(DISTINCT category_id) AS categoriesWithData,
       COUNT(DISTINCT COALESCE(NULLIF(product_id, ''), NULLIF(product_name, ''))) AS productCount
     FROM records
-    WHERE ranking_type = ? AND capture_hour = ?
-  `).get(rankingType, latestHour);
+    WHERE ranking_type = ? AND captured_at >= ?
+  `).get(rankingType, todayStartIso);
 
   return {
     latestHour,
@@ -639,12 +653,55 @@ export function readDiagnostics() {
     categories: count("categories"),
     captureBatches: count("capture_batches"),
     records: count("records"),
+    feedback: count("feedback"),
     sqliteBytes: fileSize(DB_FILE),
     walBytes: fileSize(`${DB_FILE}-wal`),
     shmBytes: fileSize(`${DB_FILE}-shm`),
     historyRetentionHours: config.historyRetentionHours,
     categoryStatsCacheAgeMs: categoryStatsCacheAt ? Date.now() - categoryStatsCacheAt : null
   };
+}
+
+export function appendFeedback({ user, content }) {
+  const database = openDb();
+  const createdAt = nowIso();
+  const feedback = {
+    id: nanoid(),
+    userId: user?.id || "",
+    username: user?.username || "",
+    displayName: user?.displayName || "",
+    content: String(content || "").trim(),
+    status: "open",
+    createdAt
+  };
+
+  database.prepare(`
+    INSERT INTO feedback (id, user_id, username, display_name, content, status, created_at, data)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    feedback.id,
+    feedback.userId,
+    feedback.username,
+    feedback.displayName,
+    feedback.content,
+    feedback.status,
+    feedback.createdAt,
+    JSON.stringify(feedback)
+  );
+
+  return feedback;
+}
+
+export function readFeedback({ limit = 200 } = {}) {
+  const database = openDb();
+  const rows = database.prepare(`
+    SELECT data
+    FROM feedback
+    ORDER BY created_at DESC
+    LIMIT ?
+  `).all(Math.min(Math.max(Number(limit || 200), 1), 500));
+
+  return rows.map((row) => parseJson(row.data, {}));
 }
 
 export const storePaths = {

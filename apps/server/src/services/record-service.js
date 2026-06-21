@@ -2,7 +2,6 @@ import { nanoid } from "nanoid";
 import {
   appendCaptureBatch,
   readDiagnostics,
-  readBatchesByCategorySince,
   readBatchesByCategory,
   readCaptureBatches,
   readCategories,
@@ -20,7 +19,6 @@ import {
 } from "../data/store.js";
 import { config } from "../config.js";
 import { getNowIso, isAfter, subtractHours, toHourKey } from "../utils/time.js";
-import dayjs from "dayjs";
 import {
   STANDARD_CATEGORIES,
   findStandardCategoryById,
@@ -28,8 +26,6 @@ import {
 } from "../constants/standard-categories.js";
 
 const SHORT_VIDEO_RANKING = "\u77ed\u89c6\u9891\u699c";
-const rankingRowsCache = new Map();
-const RANKING_ROWS_CACHE_MS = 30_000;
 
 function isObjectPlaceholderText(value) {
   return String(value || "").replace(/\s+/g, "").toLowerCase() === "[objectobject]";
@@ -163,6 +159,59 @@ function makeRecordKey(record) {
   ].join("::");
 }
 
+function getChinaTodayStartIso(date = new Date()) {
+  const chinaOffsetMs = 8 * 60 * 60 * 1000;
+  const chinaNow = new Date(date.getTime() + chinaOffsetMs);
+  const chinaDayStartUtcMs = Date.UTC(
+    chinaNow.getUTCFullYear(),
+    chinaNow.getUTCMonth(),
+    chinaNow.getUTCDate()
+  );
+  return new Date(chinaDayStartUtcMs - chinaOffsetMs).toISOString();
+}
+
+function getChinaNaturalDayRetentionCutoffIso(date = new Date(), daysToKeep = 2) {
+  const chinaOffsetMs = 8 * 60 * 60 * 1000;
+  const chinaNow = new Date(date.getTime() + chinaOffsetMs);
+  const chinaTodayStartUtcMs = Date.UTC(
+    chinaNow.getUTCFullYear(),
+    chinaNow.getUTCMonth(),
+    chinaNow.getUTCDate()
+  );
+  return new Date(chinaTodayStartUtcMs - (Math.max(1, daysToKeep) - 1) * 24 * 60 * 60 * 1000 - chinaOffsetMs).toISOString();
+}
+
+function toPositiveInt(value, fallback, min = 1, max = 500) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.min(Math.max(Math.floor(parsed), min), max);
+}
+
+function paginateItems(items, options = {}) {
+  const page = toPositiveInt(options.page, 1, 1, 100000);
+  const pageSize = toPositiveInt(options.pageSize, 50, 1, 200);
+  const total = items.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const start = (safePage - 1) * pageSize;
+
+  return {
+    items: items.slice(start, start + pageSize),
+    total,
+    page: safePage,
+    pageSize,
+    totalPages
+  };
+}
+
+function isAtOrAfterIso(value, baselineIso) {
+  const time = new Date(value || "").getTime();
+  const baseline = new Date(baselineIso || "").getTime();
+  return Number.isFinite(time) && Number.isFinite(baseline) && time >= baseline;
+}
+
 function sanitizeRecord(input, batch) {
   const capturedAt = batch.capturedAt;
 
@@ -181,7 +230,6 @@ function sanitizeRecord(input, batch) {
     productId: input.productId || "",
     productName: input.productName || "",
     productUrl: input.productUrl || "",
-    compassDetailUrl: input.compassDetailUrl || input.detailUrl || "",
     productImage: input.productImage || "",
     shopName: input.shopName || "",
     shopUrl: input.shopUrl || "",
@@ -328,8 +376,69 @@ function getLatestTrustedBatchesFast(categoryId, limit = 2) {
   return trusted;
 }
 
+function isTrustedBatchWithRecords(batch, records) {
+  return (
+    records.some((record) => Number(record.rank) === 1) &&
+    (isDomFallbackBatch(batch) || !isSuspiciousRankingQuality(records)) &&
+    (
+      isDomFallbackBatch(batch) ||
+      records.filter((record) => record.videoTitle || record.videoPublishedAt || record.videoCountRange).length >= 3
+    )
+  );
+}
+
+function getTodayTrustedBatchEntries(categoryId, limit = 300) {
+  const todayStartIso = getChinaTodayStartIso();
+  const candidates = readBatchesByCategory(categoryId, limit)
+    .filter(isTrustedBatch)
+    .filter((batch) => isAtOrAfterIso(batch.capturedAt, todayStartIso))
+    .sort((left, right) => String(left.capturedAt || "").localeCompare(String(right.capturedAt || "")));
+  const entries = [];
+
+  for (const batch of candidates) {
+    const records = readRecordsByBatchIds([batch.id])
+      .filter((record) => isShortVideoRanking(record.rankingType))
+      .filter((record) => record.productName || record.videoTitle)
+      .filter((record) => !isHeaderLikeRecord(record));
+
+    if (isTrustedBatchWithRecords(batch, records)) {
+      entries.push({ batch, records });
+    }
+  }
+
+  return entries;
+}
+
+function getTodayFirstListedSummary(categoryId) {
+  const entries = getTodayTrustedBatchEntries(categoryId);
+  const baselineEntry = entries[0] || null;
+  const baselineKeys = new Set((baselineEntry?.records || []).map((record) => makeRecordKey(record)));
+  const firstByKey = new Map();
+
+  for (const entry of entries.slice(1)) {
+    for (const record of entry.records) {
+      const key = makeRecordKey(record);
+      if (!key || baselineKeys.has(key) || firstByKey.has(key)) {
+        continue;
+      }
+      firstByKey.set(key, {
+        record,
+        batch: entry.batch
+      });
+    }
+  }
+
+  return {
+    baselineBatch: baselineEntry?.batch || null,
+    latestBatch: entries.at(-1)?.batch || null,
+    batchCount: entries.length,
+    firstByKey,
+    keySet: new Set(firstByKey.keys())
+  };
+}
+
 function trimHistory(store) {
-  const cutoff = subtractHours(getNowIso(), config.historyRetentionHours);
+  const cutoff = getChinaNaturalDayRetentionCutoffIso();
   store.captureBatches = store.captureBatches.filter((batch) => isAfter(batch.capturedAt, cutoff));
   const allowedBatchIds = new Set(store.captureBatches.map((batch) => batch.id));
   store.records = store.records.filter((record) => allowedBatchIds.has(record.batchId));
@@ -443,7 +552,6 @@ export function saveCapture(payload) {
     });
   }
 
-  rankingRowsCache.clear();
   return batch;
 }
 
@@ -645,7 +753,6 @@ function buildRecordBackfillIndex(records) {
     if (!index.has(key)) {
       index.set(key, {
         productImage: "",
-        compassDetailUrl: "",
         paymentRange: "",
         clickRange: "",
         orderRange: "",
@@ -655,7 +762,6 @@ function buildRecordBackfillIndex(records) {
 
     const entry = index.get(key);
     entry.productImage ||= record.productImage || "";
-    entry.compassDetailUrl ||= record.compassDetailUrl || "";
     entry.paymentRange ||= record.paymentRange || "";
     entry.clickRange ||= record.clickRange || "";
     entry.orderRange ||= record.orderRange || "";
@@ -704,7 +810,6 @@ function backfillRecordForDisplay(record, backfillIndex) {
   return {
     ...record,
     productImage: record.productImage || fill.productImage || "",
-    compassDetailUrl: record.compassDetailUrl || fill.compassDetailUrl || "",
     paymentRange: record.paymentRange || fill.paymentRange || "",
     clickRange: record.clickRange || fill.clickRange || "",
     orderRange: record.orderRange || fill.orderRange || "",
@@ -824,20 +929,6 @@ function buildQualitySummary(rows) {
   };
 }
 
-function hasDisplayGaps(records) {
-  return (records || []).some((record) => {
-    const videos = uniqueVideos([record]);
-    return (
-      !String(record.productImage || "").trim() ||
-      !String(record.paymentRange || "").trim() ||
-      !String(record.clickRange || "").trim() ||
-      !String(record.orderRange || "").trim() ||
-      !videos.length ||
-      videos.some((video) => !String(video.videoCover || "").trim() || !String(video.videoPublishedAt || "").trim())
-    );
-  });
-}
-
 function parseRangeLevelForRawRows(value) {
   return parseCleanRangeLevel(value);
 }
@@ -882,7 +973,11 @@ function isVisibleDiffItem(item) {
   return !/视频数|video\s*count/i.test(text);
 }
 
-function buildRankingRawRow(record, previous, latestBatches) {
+function hasVisibleDiffItems(row) {
+  return (Array.isArray(row.diffItems) ? row.diffItems : []).some(isVisibleDiffItem);
+}
+
+function buildRankingRawRow(record, previous, latestBatches, todayFirstListed = null) {
   const videos = uniqueVideos([record]);
   const diffItems = previous
     ? [
@@ -912,8 +1007,8 @@ function buildRankingRawRow(record, previous, latestBatches) {
   if (diffItems.some((item) => ["payment", "click", "order"].includes(item.kind) && item.isRangeJump)) {
     statusTags.push("区间跳跃");
   }
-  if (record.isCompassFirstListed) {
-    statusTags.push("首次上榜");
+  if (todayFirstListed?.isTodayFirstListed) {
+    statusTags.push("今日新增");
   }
 
   return {
@@ -929,7 +1024,6 @@ function buildRankingRawRow(record, previous, latestBatches) {
     productId: record.productId,
     productName: record.productName,
     productUrl: record.productUrl,
-    compassDetailUrl: record.compassDetailUrl || "",
     productImage: record.productImage,
     shopName: record.shopName,
     shopUrl: record.shopUrl,
@@ -949,6 +1043,9 @@ function buildRankingRawRow(record, previous, latestBatches) {
     previousOrderRange: previous?.orderRange || "",
     videoCountRange: record.videoCountRange || "",
     isCompassFirstListed: Boolean(record.isCompassFirstListed),
+    isTodayFirstListed: Boolean(todayFirstListed?.isTodayFirstListed),
+    todayFirstListedAt: todayFirstListed?.firstListedAt || "",
+    todayBaselineBatchAt: todayFirstListed?.baselineBatchAt || "",
     isNewcomer: !previous,
     hasDiff: Boolean(!previous || previous.rank !== record.rank || diffItems.length),
     isRangeJump: diffItems.some((item) => item.isRangeJump),
@@ -960,70 +1057,6 @@ function buildRankingRawRow(record, previous, latestBatches) {
   };
 }
 
-function makeTodayStartIso() {
-  return dayjs().startOf("day").toISOString();
-}
-
-function buildTodayNewRows(categoryId, latestBatches) {
-  const dayBatches = readBatchesByCategorySince(categoryId, makeTodayStartIso(), 200)
-    .filter(isTrustedBatch);
-  if (dayBatches.length < 2) {
-    return [];
-  }
-
-  const batchIds = dayBatches.map((batch) => batch.id);
-  const records = readRecordsByCategoryAndBatchIds(categoryId, batchIds)
-    .filter((record) => isShortVideoRanking(record.rankingType))
-    .filter((record) => record.productName || record.videoTitle)
-    .filter((record) => !isHeaderLikeRecord(record));
-  const baselineBatchId = dayBatches[0]?.id;
-  const baselineKeys = new Set(
-    records
-      .filter((record) => record.batchId === baselineBatchId)
-      .map(makeRecordKey)
-      .filter(Boolean)
-  );
-  const firstSeenByKey = new Map();
-  const latestByKey = new Map();
-
-  for (const batch of dayBatches.slice(1)) {
-    const batchRecords = records
-      .filter((record) => record.batchId === batch.id)
-      .sort((left, right) => left.rank - right.rank);
-
-    for (const record of batchRecords) {
-      const key = makeRecordKey(record);
-      if (!key || baselineKeys.has(key)) {
-        continue;
-      }
-      if (!firstSeenByKey.has(key)) {
-        firstSeenByKey.set(key, record);
-      }
-      latestByKey.set(key, record);
-    }
-  }
-
-  const backfillIndex = buildRecordBackfillIndex(records);
-  const rows = [...firstSeenByKey.entries()]
-    .map(([key, firstRecord]) => {
-      const latestRecord = latestByKey.get(key) || firstRecord;
-      const filledLatest = backfillRecordForDisplay(latestRecord, backfillIndex);
-      const filledFirst = backfillRecordForDisplay(firstRecord, backfillIndex);
-      return {
-        ...buildRankingRawRow(filledLatest, filledFirst, latestBatches),
-        isTodayNew: true,
-        isCompassFirstListed: true,
-        firstSeenAt: firstRecord.capturedAt || "",
-        firstSeenBatchId: firstRecord.batchId || "",
-        firstRank: firstRecord.rank || "",
-        statusTags: ["今日新增"]
-      };
-    })
-    .sort((left, right) => String(right.firstSeenAt || "").localeCompare(String(left.firstSeenAt || "")) || left.rank - right.rank);
-  const qualitySummary = buildQualitySummary(rows);
-  return rows.map((row) => ({ ...row, qualitySummary }));
-}
-
 export function getRankingRows(user, filters = {}) {
   if (filters.categoryId && !filters.captureHour) {
     const allowedCategoryIds = new Set(getCategoriesForUser(user).map((entry) => entry.id));
@@ -1031,27 +1064,13 @@ export function getRankingRows(user, filters = {}) {
       return [];
     }
 
-    const cacheKey = `${user.id || ""}:${filters.categoryId}:${filters.viewMode || "all"}`;
-    const cached = rankingRowsCache.get(cacheKey);
-    if (cached && Date.now() - cached.createdAt < RANKING_ROWS_CACHE_MS) {
-      return cached.rows;
-    }
-
     const latestBatches = getLatestTrustedBatchesFast(filters.categoryId, 2);
-    if (filters.viewMode === "firstListed" || filters.viewMode === "todayNew") {
-      const rows = buildTodayNewRows(filters.categoryId, latestBatches);
-      rankingRowsCache.set(cacheKey, { createdAt: Date.now(), rows });
-      return rows;
-    }
     const batchRecords = readRecordsByBatchIds(latestBatches.map((batch) => batch.id))
       .filter((record) => isShortVideoRanking(record.rankingType))
       .filter((record) => record.productName || record.videoTitle)
       .filter((record) => !isHeaderLikeRecord(record));
-    const needsBackfill = hasDisplayGaps(batchRecords);
-    const backfillRecords = needsBackfill
-      ? readRecentRecordsByCategory(filters.categoryId, 600)
-          .filter((record) => isShortVideoRanking(record.rankingType))
-      : batchRecords;
+    const backfillRecords = readRecentRecordsByCategory(filters.categoryId, 1200)
+      .filter((record) => isShortVideoRanking(record.rankingType));
     const backfillIndex = buildRecordBackfillIndex(backfillRecords);
     const currentBatchId = latestBatches[0]?.id || null;
     const previousBatchId = latestBatches[1]?.id || null;
@@ -1061,6 +1080,7 @@ export function getRankingRows(user, filters = {}) {
           .map((record) => backfillRecordForDisplay(record, backfillIndex))
       : [];
     const previousByKey = new Map(previousBatchRecords.map((record) => [makeRecordKey(record), record]));
+    const todayFirstListedSummary = getTodayFirstListedSummary(filters.categoryId);
 
     if (!currentBatchId) {
       return [];
@@ -1070,11 +1090,17 @@ export function getRankingRows(user, filters = {}) {
       .filter((record) => record.batchId === currentBatchId)
       .map((record) => backfillRecordForDisplay(record, backfillIndex))
       .sort((left, right) => left.rank - right.rank)
-      .map((record) => buildRankingRawRow(record, previousByKey.get(makeRecordKey(record)), latestBatches));
+      .map((record) => {
+        const key = makeRecordKey(record);
+        const firstEntry = todayFirstListedSummary.firstByKey.get(key);
+        return buildRankingRawRow(record, previousByKey.get(key), latestBatches, {
+          isTodayFirstListed: todayFirstListedSummary.keySet.has(key),
+          firstListedAt: firstEntry?.batch?.capturedAt || "",
+          baselineBatchAt: todayFirstListedSummary.baselineBatch?.capturedAt || ""
+        });
+      });
     const qualitySummary = buildQualitySummary(rawRows);
-    const rows = rawRows.map((row) => ({ ...row, qualitySummary }));
-    rankingRowsCache.set(cacheKey, { createdAt: Date.now(), rows });
-    return rows;
+    return rawRows.map((row) => ({ ...row, qualitySummary }));
   }
 
   const records = getVisibleRecords(user, filters);
@@ -1093,13 +1119,22 @@ export function getRankingRows(user, filters = {}) {
         .map((record) => backfillRecordForDisplay(record, backfillIndex))
     : [];
   const previousByKey = new Map(previousBatchRecords.map((record) => [makeRecordKey(record), record]));
+  const todayFirstListedSummary = filters.categoryId ? getTodayFirstListedSummary(filters.categoryId) : null;
 
   if (currentBatchId) {
     const rawRows = records
       .filter((record) => record.batchId === currentBatchId)
       .map((record) => backfillRecordForDisplay(record, backfillIndex))
       .sort((left, right) => left.rank - right.rank)
-      .map((record) => buildRankingRawRow(record, previousByKey.get(makeRecordKey(record)), latestBatches));
+      .map((record) => {
+        const key = makeRecordKey(record);
+        const firstEntry = todayFirstListedSummary?.firstByKey.get(key);
+        return buildRankingRawRow(record, previousByKey.get(key), latestBatches, {
+          isTodayFirstListed: Boolean(todayFirstListedSummary?.keySet.has(key)),
+          firstListedAt: firstEntry?.batch?.capturedAt || "",
+          baselineBatchAt: todayFirstListedSummary?.baselineBatch?.capturedAt || ""
+        });
+      });
     const qualitySummary = buildQualitySummary(rawRows);
     return rawRows.map((row) => ({ ...row, qualitySummary }));
   }
@@ -1176,10 +1211,6 @@ export function getRankingRows(user, filters = {}) {
       if (diffItems.some((item) => item.kind === "order" && item.direction === "up")) {
         statusTags.push("成交上升");
       }
-      if (sortedEntries.some((entry) => entry.isCompassFirstListed)) {
-        statusTags.push("首次上榜");
-      }
-
       return {
         id: primary.batchId ? `${primary.batchId}::${buildRankingRowKey(primary)}` : primary.id,
         batchId: primary.batchId,
@@ -1193,7 +1224,6 @@ export function getRankingRows(user, filters = {}) {
         productId: primary.productId,
         productName: primary.productName,
         productUrl: primary.productUrl,
-        compassDetailUrl: primary.compassDetailUrl || "",
         productImage: primary.productImage,
         shopName: primary.shopName,
         shopUrl: primary.shopUrl,
@@ -1227,6 +1257,18 @@ export function getRankingRows(user, filters = {}) {
 
   const qualitySummary = buildQualitySummary(rows);
   return rows.map((row) => ({ ...row, qualitySummary }));
+}
+
+export function getRankingRowsPage(user, filters = {}) {
+  const rows = getRankingRows(user, filters);
+  const viewMode = String(filters.viewMode || "all");
+  const filteredRows = viewMode === "firstListed" || viewMode === "todayNew"
+    ? rows.filter((row) => row.isTodayFirstListed)
+    : viewMode === "changed"
+      ? rows.filter(hasVisibleDiffItems)
+      : rows;
+
+  return paginateItems(filteredRows, filters);
 }
 
 export function getLatestBatchByCategory(categoryId) {
@@ -1292,13 +1334,19 @@ export function getHourlyDiffs(user, categoryId) {
       ? records.filter((entry) => entry.batchId === previousBatchId)
       : [];
     const previousByKey = new Map(previousRecords.map((entry) => [makeRecordKey(entry), entry]));
-
-    const newcomers = currentRecords
-      .filter((record) => !previousByKey.has(makeRecordKey(record)))
-      .map((record) => ({
+    const todayFirstListedSummary = getTodayFirstListedSummary(categoryId);
+    const todayFirstRecords = [...todayFirstListedSummary.firstByKey.values()]
+      .map(({ record, batch }) => ({
         ...record,
-        changeType: "newcomer"
-      }));
+        changeType: "newcomer",
+        isTodayFirstListed: true,
+        todayFirstListedAt: batch?.capturedAt || "",
+        todayBaselineBatchAt: todayFirstListedSummary.baselineBatch?.capturedAt || ""
+      }))
+      .sort((left, right) => {
+        const timeDiff = String(left.todayFirstListedAt || "").localeCompare(String(right.todayFirstListedAt || ""));
+        return timeDiff || Number(left.rank || 0) - Number(right.rank || 0);
+      });
 
     const shifts = currentRecords
       .map((record) => {
@@ -1342,12 +1390,16 @@ export function getHourlyDiffs(user, categoryId) {
 
     return {
       currentHour: currentLabel,
-      previousHour: previousLabel,
+      previousHour: todayFirstListedSummary.baselineBatch?.capturedAt || previousLabel,
+      baselineHour: todayFirstListedSummary.baselineBatch?.capturedAt || null,
+      todayBatchCount: todayFirstListedSummary.batchCount,
       currentRecordCount: currentRecords.length,
-      previousRecordCount: previousRecords.length,
-      newcomerCount: newcomers.length,
+      previousRecordCount: todayFirstListedSummary.baselineBatch
+        ? (todayFirstListedSummary.baselineBatch.recordCount || 0)
+        : previousRecords.length,
+      newcomerCount: todayFirstRecords.length,
       shiftCount: shifts.length,
-      newcomers,
+      newcomers: todayFirstRecords,
       shifts
     };
   }
@@ -1424,6 +1476,21 @@ export function getHourlyDiffs(user, categoryId) {
   };
 }
 
+export function getHourlyDiffsPage(user, categoryId, options = {}) {
+  const result = getHourlyDiffs(user, categoryId);
+  const newcomerPage = paginateItems(result.newcomers || [], options);
+
+  return {
+    ...result,
+    newcomers: newcomerPage.items,
+    newcomerTotal: newcomerPage.total,
+    newcomerPage: newcomerPage.page,
+    newcomerPageSize: newcomerPage.pageSize,
+    newcomerTotalPages: newcomerPage.totalPages,
+    newcomerCount: newcomerPage.total
+  };
+}
+
 export function getCaptureHistory(user, options = {}) {
   const allowedCategoryIds = new Set(getCategoriesForUser(user).map((entry) => entry.id));
   const limit = Math.min(Math.max(Number(options.limit || 300), 50), 1000);
@@ -1432,6 +1499,12 @@ export function getCaptureHistory(user, options = {}) {
     .filter((entry) => allowedCategoryIds.has(String(entry.categoryId || "")))
     .filter(isTrustedBatch)
     .sort((left, right) => (left.capturedAt < right.capturedAt ? 1 : -1));
+}
+
+export function getCaptureHistoryPage(user, options = {}) {
+  const limit = Math.min(Math.max(Number(options.limit || 1000), 50), 2000);
+  const rows = getCaptureHistory(user, { limit });
+  return paginateItems(rows, options);
 }
 
 export function getDiagnostics() {

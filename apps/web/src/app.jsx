@@ -8,6 +8,8 @@ import { OverviewPage } from "./pages/OverviewPage.jsx";
 import { RankingPage } from "./pages/RankingPage.jsx";
 import { HistoryPage } from "./pages/HistoryPage.jsx";
 import { SettingsPage } from "./pages/SettingsPage.jsx";
+import { ChangelogPage } from "./pages/ChangelogPage.jsx";
+import { FeedbackPage } from "./pages/FeedbackPage.jsx";
 
 export default function App() {
   return (
@@ -28,6 +30,8 @@ export default function App() {
             <Route path="ranking" element={<RankingPage />} />
             <Route path="history" element={<HistoryPage />} />
             <Route path="settings" element={<SettingsPage />} />
+            <Route path="changelog" element={<ChangelogPage />} />
+            <Route path="feedback" element={<FeedbackPage />} />
           </Route>
         </Routes>
       </AuthProvider>

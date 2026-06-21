@@ -668,7 +668,6 @@
       productId: getByKeysDeep(item, ["productId", "product_id", "goodsId", "goods_id", "itemId", "item_id", "id"]),
       productName,
       productUrl: getByKeyFragmentsDeep(item, ["producturl", "detailurl", "schema", "href", "link"]),
-      compassDetailUrl: getByKeyFragmentsDeep(item, ["compassdetailurl", "compass_detail_url", "analysisurl", "analysis_url"]),
       productImage: mediaUrl(item, ["productimage", "product_image", "goodsimage", "goods_image", "image", "img", "pic"]),
       shopName: getByKeysDeep(item, ["shopName", "shop_name", "storeName", "store_name"]),
       shopUrl: getByKeyFragmentsDeep(item, ["shopurl", "storeurl"]),
@@ -737,8 +736,6 @@
         const rank = firstRank || (page - 1) * 10 + index + 1;
         const ranges = cells.map((cell) => cell.replace(/\s+/g, "")).filter(isMetricRange);
         const image = row.querySelector("img[src]")?.src || "";
-        const detailLink = Array.from(row.querySelectorAll("a[href]"))
-          .find((link) => compact(text(link)).includes(compact("查看详情")))?.href || "";
         const productName = cells.find((cell) => {
           const compactCell = compact(cell);
           if (!compactCell || /^\d+$/.test(compactCell) || isMetricRange(compactCell)) return false;
@@ -755,7 +752,6 @@
           productId: "",
           productName,
           productUrl: "",
-          compassDetailUrl: detailLink,
           productImage: image,
           shopName: "",
           shopUrl: "",
@@ -800,14 +796,11 @@
           .slice(Math.max(0, cells.length - 6))
           .map((cell) => cell.replace(/\s+/g, ""))
           .filter(isMetricRange);
-        const detailLink = Array.from(row.querySelectorAll("a[href]"))
-          .find((link) => compact(text(link)).includes(compact("查看详情")))?.href || "";
         return {
           rank: (page - 1) * 10 + index + 1,
           paymentRange: ranges[0] || "",
           clickRange: ranges[1] || "",
           orderRange: ranges[2] || "",
-          compassDetailUrl: detailLink,
           isCompassFirstListed: rowText.includes("\u9996\u6b21\u4e0a\u699c")
         };
       });
@@ -823,7 +816,6 @@
         paymentRange: row.paymentRange || fill.paymentRange,
         clickRange: row.clickRange || fill.clickRange,
         orderRange: row.orderRange || fill.orderRange,
-        compassDetailUrl: row.compassDetailUrl || fill.compassDetailUrl,
         isCompassFirstListed: Boolean(row.isCompassFirstListed || fill.isCompassFirstListed)
       };
     });

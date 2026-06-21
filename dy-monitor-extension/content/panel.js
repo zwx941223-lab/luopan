@@ -83,6 +83,7 @@
   let stopRequested = false;
   let timerId = null;
   let running = false;
+  let pendingTimerRound = false;
 
   function setStatus(message) {
     status.textContent = message;
@@ -208,7 +209,10 @@
   }
 
   async function runBatch(rows, source = "manual") {
-    if (running) return;
+    if (running) {
+      if (source === "timer") pendingTimerRound = true;
+      return;
+    }
     if (!rows.length) {
       setStatus(t.pickFirst);
       return;
@@ -237,6 +241,10 @@
       setStatus(`\u4efb\u52a1\u7ed3\u675f\u3002\u6210\u529f ${success}\uff0c\u5931\u8d25 ${failed}${failedRows.length ? `\n${failedRows.join("\n")}` : ""}`);
     } finally {
       setBusy(false);
+      if (source === "timer" && timerId && pendingTimerRound && !stopRequested) {
+        pendingTimerRound = false;
+        window.setTimeout(() => runBatch(allCategories(), "timer"), 1000);
+      }
     }
   }
 
@@ -245,6 +253,7 @@
       window.clearInterval(timerId);
       timerId = null;
     }
+    pendingTimerRound = false;
     timerButton.textContent = t.timerOn;
     setStatus(t.timerStopped);
   }

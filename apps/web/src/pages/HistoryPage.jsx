@@ -1,11 +1,21 @@
+import { useState } from "react";
 import dayjs from "dayjs";
 import { PageSection } from "../components/PageSection.jsx";
 import { StatusPanel } from "../components/StatusPanel.jsx";
 import { fetchHistory, useDashboardData } from "../hooks/useDashboardData.js";
 
+const PAGE_SIZE = 50;
+
 export function HistoryPage() {
-  const history = useDashboardData(fetchHistory, []);
-  const items = history.data || [];
+  const [page, setPage] = useState(1);
+  const history = useDashboardData((token) => fetchHistory(token, { page, pageSize: PAGE_SIZE }), [page]);
+  const payload = history.data || {};
+  const items = Array.isArray(payload) ? payload : payload.items || [];
+  const totalItems = Array.isArray(payload) ? items.length : Number(payload.total || 0);
+  const totalPages = Math.max(1, Number(payload.totalPages || Math.ceil(totalItems / PAGE_SIZE) || 1));
+  const safePage = Math.min(page, totalPages);
+  const pageStart = totalItems ? (safePage - 1) * PAGE_SIZE + 1 : 0;
+  const pageEnd = Math.min(totalItems, safePage * PAGE_SIZE);
 
   return (
     <div className="page-stack">
@@ -37,6 +47,32 @@ export function HistoryPage() {
               </tbody>
             </table>
           </div>
+          {totalItems > PAGE_SIZE ? (
+            <div className="table-pagination">
+              <span>
+                每页 {PAGE_SIZE} 条，当前 {pageStart}-{pageEnd} / 共 {totalItems} 条
+              </span>
+              <div className="pagination-buttons">
+                <button type="button" disabled={safePage <= 1} onClick={() => setPage(1)}>
+                  首页
+                </button>
+                <button type="button" disabled={safePage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>
+                  上一页
+                </button>
+                <strong>{safePage} / {totalPages}</strong>
+                <button
+                  type="button"
+                  disabled={safePage >= totalPages}
+                  onClick={() => setPage((value) => Math.min(totalPages, value + 1))}
+                >
+                  下一页
+                </button>
+                <button type="button" disabled={safePage >= totalPages} onClick={() => setPage(totalPages)}>
+                  末页
+                </button>
+              </div>
+            </div>
+          ) : null}
         </StatusPanel>
       </PageSection>
     </div>

@@ -6,7 +6,8 @@ const navItems = [
   { to: "/overview", label: "经营总览", meta: "数据概览" },
   { to: "/ranking", label: "榜单明细", meta: "短视频榜" },
   { to: "/history", label: "采集历史", meta: "批次记录" },
-  { to: "/settings", label: "系统设置", meta: "账号与类目" }
+  { to: "/changelog", label: "更新日志", meta: "版本记录" },
+  { to: "/feedback", label: "意见反馈", meta: "运营建议" }
 ];
 
 export function DashboardLayout() {
