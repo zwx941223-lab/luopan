@@ -77,9 +77,9 @@ function parseCleanRangeLevel(value) {
   }
 
   const normalized = text
-    .replace(/\uFFE5|\u00A5|,|\u5143/g, "")
-    .replace(/\u4e07/g, "w")
-    .replace(/\u5343/g, "k")
+    .replace(/\uFFE5|\u00A5|,|元/g, "")
+    .replace(/万/g, "w")
+    .replace(/千/g, "k")
     .toLowerCase();
   const values = [];
   const pattern = /(\d+(?:\.\d+)?)(w|k)?/gi;
@@ -154,7 +154,13 @@ function looksLikeShopLogo(url = "") {
 
 function getDisplayProductImage(row) {
   const productImage = String(row.productImage || "").trim();
-  return productImage && !looksLikeShopLogo(productImage) ? productImage : "";
+  if (!productImage || looksLikeShopLogo(productImage)) {
+    return "";
+  }
+  if (/rank|ranking|top|badge|medal|crown|champion|first|second|third/i.test(productImage)) {
+    return "";
+  }
+  return productImage;
 }
 
 function getDisplayProductUrl(row) {
@@ -259,8 +265,8 @@ function ProductIdCopyButton({ productId }) {
 
   return (
     <div className="product-id-line">
-      <span>{"\u5546\u54c1ID\uff1a"}{value}</span>
-      <button type="button" className="product-id-copy" onClick={copyProductId} title="Copy product ID" aria-label="Copy product ID">
+      <span>商品ID：{value}</span>
+      <button type="button" className="product-id-copy" onClick={copyProductId} title="复制商品 ID" aria-label="复制商品 ID">
         {copied ? (
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M20 6L9 17l-5-5" />

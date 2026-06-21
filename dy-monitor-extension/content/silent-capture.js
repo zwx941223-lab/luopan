@@ -543,6 +543,37 @@
     return /\.(?:png|jpe?g|webp|gif)(?:\?|$)|tplv-|image\.image|douyinpic\.com\/img/i.test(url);
   }
 
+  function looksLikeRankBadgeUrl(value) {
+    const url = String(value || "").toLowerCase();
+    return /rank|ranking|top|badge|medal|crown|champion|first|second|third/.test(url);
+  }
+
+  function looksLikeProductImageUrl(value) {
+    const url = String(value || "").trim();
+    if (!url || !looksLikeImageUrl(url)) return false;
+    if (looksLikeRankBadgeUrl(url)) return false;
+    if (/avatar|logo|shop|store|qrcode|aweme-qrcode/i.test(url)) return false;
+    return true;
+  }
+
+  function firstProductImageFromElement(root) {
+    return Array.from(root.querySelectorAll("img[src]"))
+      .map((image) => image.src || "")
+      .find(looksLikeProductImageUrl) || "";
+  }
+
+  function normalizeRank(rawRank, page, index) {
+    const fallback = (page - 1) * 10 + index + 1;
+    const parsed = Number(rawRank || 0);
+    if (!Number.isFinite(parsed) || parsed < 1 || parsed > 100) {
+      return fallback;
+    }
+    if (page > 1 && parsed <= 10) {
+      return fallback;
+    }
+    return parsed;
+  }
+
   function douyinVideoUrl(videoId) {
     const id = String(videoId || "").trim();
     return id ? `https://www.douyin.com/video/${encodeURIComponent(id)}` : "";
@@ -657,7 +688,8 @@
     const productName =
       getByKeysDeep(item, ["productName", "product_name", "goodsName", "goods_name", "itemName", "item_name", "title", "name"]) ||
       getByKeyFragmentsDeep(item, ["product_name", "goods_name", "item_name"]);
-    const rank = numberByKeysDeep(item, ["rank", "ranking", "rankNo", "rank_no", "seq", "index"]) || (page - 1) * 10 + index + 1;
+    const rank = normalizeRank(numberByKeysDeep(item, ["rank", "ranking", "rankNo", "rank_no", "rankValue", "rank_value"]), page, index);
+    const productImage = mediaUrl(item, ["productimage", "product_image", "goodsimage", "goods_image", "itemimage", "item_image", "productpic", "goods_pic", "mainimage", "main_image"]);
 
     return {
       categoryId: meta.categoryId || "",
@@ -668,7 +700,7 @@
       productId: getByKeysDeep(item, ["productId", "product_id", "goodsId", "goods_id", "itemId", "item_id", "id"]),
       productName,
       productUrl: getByKeyFragmentsDeep(item, ["producturl", "detailurl", "schema", "href", "link"]),
-      productImage: mediaUrl(item, ["productimage", "product_image", "goodsimage", "goods_image", "image", "img", "pic"]),
+      productImage: looksLikeProductImageUrl(productImage) ? productImage : "",
       shopName: getByKeysDeep(item, ["shopName", "shop_name", "storeName", "store_name"]),
       shopUrl: getByKeyFragmentsDeep(item, ["shopurl", "storeurl"]),
       videoId: videos[0]?.videoId || fallbackVideoId,
@@ -733,9 +765,9 @@
           .filter(Boolean);
         const rowText = text(row);
         const firstRank = Number((cells.find((cell) => /^\s*\d+\s*$/.test(cell)) || "").replace(/[^\d]/g, ""));
-        const rank = firstRank || (page - 1) * 10 + index + 1;
+        const rank = normalizeRank(firstRank, page, index);
         const ranges = cells.map((cell) => cell.replace(/\s+/g, "")).filter(isMetricRange);
-        const image = row.querySelector("img[src]")?.src || "";
+        const image = firstProductImageFromElement(row);
         const productName = cells.find((cell) => {
           const compactCell = compact(cell);
           if (!compactCell || /^\d+$/.test(compactCell) || isMetricRange(compactCell)) return false;

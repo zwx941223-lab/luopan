@@ -94,6 +94,22 @@ function normalizeCompareText(value) {
   return String(value || "").replace(/\s+/g, "").trim().toLowerCase();
 }
 
+function looksLikeRankBadgeUrl(value) {
+  const url = String(value || "").toLowerCase();
+  return /rank|ranking|top|badge|medal|crown|champion|first|second|third/.test(url);
+}
+
+function sanitizeProductImage(value) {
+  const url = String(value || "").trim();
+  if (!url) {
+    return "";
+  }
+  if (looksLikeRankBadgeUrl(url) || /avatar|logo|shop|store|qrcode|aweme-qrcode/i.test(url)) {
+    return "";
+  }
+  return url;
+}
+
 function normalizeRankingType(value) {
   return String(value || "").replace(/\s+/g, "").trim();
 }
@@ -230,7 +246,7 @@ function sanitizeRecord(input, batch) {
     productId: input.productId || "",
     productName: input.productName || "",
     productUrl: input.productUrl || "",
-    productImage: input.productImage || "",
+    productImage: sanitizeProductImage(input.productImage),
     shopName: input.shopName || "",
     shopUrl: input.shopUrl || "",
     videoId: input.videoId || "",
@@ -761,7 +777,7 @@ function buildRecordBackfillIndex(records) {
     }
 
     const entry = index.get(key);
-    entry.productImage ||= record.productImage || "";
+    entry.productImage ||= sanitizeProductImage(record.productImage);
     entry.paymentRange ||= record.paymentRange || "";
     entry.clickRange ||= record.clickRange || "";
     entry.orderRange ||= record.orderRange || "";
@@ -809,7 +825,7 @@ function backfillRecordForDisplay(record, backfillIndex) {
 
   return {
     ...record,
-    productImage: record.productImage || fill.productImage || "",
+    productImage: sanitizeProductImage(record.productImage) || fill.productImage || "",
     paymentRange: record.paymentRange || fill.paymentRange || "",
     clickRange: record.clickRange || fill.clickRange || "",
     orderRange: record.orderRange || fill.orderRange || "",
@@ -989,7 +1005,9 @@ function buildRankingRawRow(record, previous, latestBatches, todayFirstListed = 
     : [];
   const statusTags = [];
 
-  if (!previous) {
+  const isTodayNew = Boolean(todayFirstListed?.isTodayFirstListed);
+
+  if (!previous && !isTodayNew) {
     statusTags.push("新增商品");
   }
   if (previous && previous.rank !== record.rank) {
@@ -1007,7 +1025,7 @@ function buildRankingRawRow(record, previous, latestBatches, todayFirstListed = 
   if (diffItems.some((item) => ["payment", "click", "order"].includes(item.kind) && item.isRangeJump)) {
     statusTags.push("区间跳跃");
   }
-  if (todayFirstListed?.isTodayFirstListed) {
+  if (isTodayNew) {
     statusTags.push("今日新增");
   }
 
@@ -1024,7 +1042,7 @@ function buildRankingRawRow(record, previous, latestBatches, todayFirstListed = 
     productId: record.productId,
     productName: record.productName,
     productUrl: record.productUrl,
-    productImage: record.productImage,
+    productImage: sanitizeProductImage(record.productImage),
     shopName: record.shopName,
     shopUrl: record.shopUrl,
     sourceUrl: record.sourceUrl,
@@ -1224,7 +1242,7 @@ export function getRankingRows(user, filters = {}) {
         productId: primary.productId,
         productName: primary.productName,
         productUrl: primary.productUrl,
-        productImage: primary.productImage,
+        productImage: sanitizeProductImage(primary.productImage),
         shopName: primary.shopName,
         shopUrl: primary.shopUrl,
         sourceUrl: primary.sourceUrl,
