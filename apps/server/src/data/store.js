@@ -176,6 +176,10 @@ function readRows(tableName, orderBy = "") {
   return rows.map((row) => parseJson(row.data, {}));
 }
 
+function makePlaceholders(values) {
+  return values.map(() => "?").join(", ");
+}
+
 export function readStore() {
   const database = openDb();
   const settingsRow = database.prepare("SELECT value FROM kv_store WHERE key = 'settings'").get();
@@ -193,6 +197,237 @@ export function readStore() {
   }
 
   return store;
+}
+
+export function readCategories() {
+  return normalizeStore({
+    users: [],
+    categories: readRows("categories", "ORDER BY name ASC"),
+    captureBatches: [],
+    records: [],
+    settings: {}
+  }).categories;
+}
+
+export function readUserIds() {
+  const database = openDb();
+  return database.prepare("SELECT id FROM users ORDER BY created_at ASC").all().map((row) => row.id);
+}
+
+export function readCategoryStats() {
+  const database = openDb();
+  const recordRows = database.prepare(`
+    SELECT category_id AS categoryId, COUNT(*) AS recordCount
+    FROM records
+    GROUP BY category_id
+  `).all();
+  const batchRows = database.prepare(`
+    SELECT category_id AS categoryId, MAX(captured_at) AS latestCapturedAt
+    FROM capture_batches
+    GROUP BY category_id
+  `).all();
+  const stats = new Map();
+
+  for (const row of recordRows) {
+    const categoryId = String(row.categoryId || "");
+    if (!categoryId) {
+      continue;
+    }
+    stats.set(categoryId, {
+      recordCount: Number(row.recordCount || 0),
+      latestCapturedAt: ""
+    });
+  }
+
+  for (const row of batchRows) {
+    const categoryId = String(row.categoryId || "");
+    if (!categoryId) {
+      continue;
+    }
+    const current = stats.get(categoryId) || { recordCount: 0, latestCapturedAt: "" };
+    current.latestCapturedAt = row.latestCapturedAt || "";
+    stats.set(categoryId, current);
+  }
+
+  return stats;
+}
+
+export function readBatchesByCategory(categoryId, limit = 20) {
+  const database = openDb();
+  const rows = database.prepare(`
+    SELECT data
+    FROM capture_batches
+    WHERE category_id = ?
+    ORDER BY captured_at DESC
+    LIMIT ?
+  `).all(String(categoryId || ""), Number(limit || 20));
+  return rows.map((row) => parseJson(row.data, {}));
+}
+
+export function readRecordsByBatchIds(batchIds) {
+  const ids = [...new Set((batchIds || []).map((id) => String(id || "").trim()).filter(Boolean))];
+  if (!ids.length) {
+    return [];
+  }
+
+  const database = openDb();
+  const rows = database.prepare(`
+    SELECT data
+    FROM records
+    WHERE batch_id IN (${makePlaceholders(ids)})
+    ORDER BY captured_at DESC, rank ASC
+  `).all(...ids);
+  return rows.map((row) => parseJson(row.data, {}));
+}
+
+export function readRecentRecordsByCategory(categoryId, limit = 1200) {
+  const database = openDb();
+  const rows = database.prepare(`
+    SELECT data
+    FROM records
+    WHERE category_id = ?
+    ORDER BY captured_at DESC, rank ASC
+    LIMIT ?
+  `).all(String(categoryId || ""), Number(limit || 1200));
+  return rows.map((row) => parseJson(row.data, {}));
+}
+
+export function readOverviewStats(rankingType) {
+  const database = openDb();
+  const latest = database.prepare(`
+    SELECT capture_hour AS latestHour
+    FROM records
+    WHERE ranking_type = ?
+    ORDER BY capture_hour DESC
+    LIMIT 1
+  `).get(rankingType);
+  const latestHour = latest?.latestHour || null;
+
+  if (!latestHour) {
+    return {
+      latestHour: null,
+      categoriesWithData: 0,
+      recordCount: 0,
+      productCount: 0
+    };
+  }
+
+  const summary = database.prepare(`
+    SELECT
+      COUNT(*) AS recordCount,
+      COUNT(DISTINCT category_id) AS categoriesWithData,
+      COUNT(DISTINCT COALESCE(NULLIF(product_id, ''), NULLIF(product_name, ''))) AS productCount
+    FROM records
+    WHERE ranking_type = ? AND capture_hour = ?
+  `).get(rankingType, latestHour);
+
+  return {
+    latestHour,
+    categoriesWithData: Number(summary?.categoriesWithData || 0),
+    recordCount: Number(summary?.recordCount || 0),
+    productCount: Number(summary?.productCount || 0)
+  };
+}
+
+export function readCaptureBatches(limit = 300) {
+  const database = openDb();
+  const rows = database.prepare(`
+    SELECT data
+    FROM capture_batches
+    ORDER BY captured_at DESC
+    LIMIT ?
+  `).all(Number(limit || 300));
+  return rows.map((row) => parseJson(row.data, {}));
+}
+
+export function appendCaptureBatch({ category, batch, records, cutoff }) {
+  runInTransaction((database) => {
+    if (cutoff) {
+      database.prepare(`
+        DELETE FROM records
+        WHERE batch_id IN (
+          SELECT id FROM capture_batches WHERE captured_at <= ?
+        )
+      `).run(cutoff);
+      database.prepare("DELETE FROM capture_batches WHERE captured_at <= ?").run(cutoff);
+    }
+
+    const existingCategory = database.prepare("SELECT data FROM categories WHERE id = ?").get(category.id);
+    const insertCategory = database.prepare(`
+      INSERT INTO categories (id, name, code, created_at, owner_user_ids, data)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    const updateCategory = database.prepare(`
+      UPDATE categories
+      SET name = ?, code = ?, owner_user_ids = ?, data = ?
+      WHERE id = ?
+    `);
+    const insertBatch = database.prepare(`
+      INSERT INTO capture_batches (
+        id, category_id, category_name, ranking_type, captured_at, capture_hour, record_count, trigger_mode, data
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const insertRecord = database.prepare(`
+      INSERT INTO records (
+        id, batch_id, category_id, category_name, ranking_type, capture_hour, captured_at,
+        rank, product_id, product_name, shop_name, data
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    if (existingCategory) {
+      const previous = parseJson(existingCategory.data, {});
+      const nextCategory = {
+        ...previous,
+        ...category,
+        ownerUserIds: category.ownerUserIds || previous.ownerUserIds || []
+      };
+      updateCategory.run(
+        nextCategory.name,
+        nextCategory.code || "",
+        JSON.stringify(nextCategory.ownerUserIds || []),
+        JSON.stringify(nextCategory),
+        nextCategory.id
+      );
+    } else {
+      insertCategory.run(
+        category.id,
+        category.name,
+        category.code || "",
+        category.createdAt || nowIso(),
+        JSON.stringify(category.ownerUserIds || []),
+        JSON.stringify(category)
+      );
+    }
+
+    insertBatch.run(
+      batch.id,
+      batch.categoryId || "",
+      batch.categoryName || "",
+      batch.rankingType || "",
+      batch.capturedAt || "",
+      batch.captureHour || "",
+      Number(batch.recordCount || 0),
+      batch.triggerMode || "",
+      JSON.stringify(batch)
+    );
+
+    for (const record of records || []) {
+      insertRecord.run(
+        record.id,
+        record.batchId || "",
+        record.categoryId || "",
+        record.categoryName || "",
+        record.rankingType || "",
+        record.captureHour || "",
+        record.capturedAt || "",
+        Number(record.rank || 0),
+        record.productId || "",
+        record.productName || "",
+        record.shopName || "",
+        JSON.stringify(record)
+      );
+    }
+  });
 }
 
 function runInTransaction(callback) {

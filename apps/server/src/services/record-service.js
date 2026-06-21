@@ -1,5 +1,17 @@
 import { nanoid } from "nanoid";
-import { readStore, updateStore } from "../data/store.js";
+import {
+  appendCaptureBatch,
+  readBatchesByCategory,
+  readCaptureBatches,
+  readCategories,
+  readCategoryStats,
+  readOverviewStats,
+  readRecentRecordsByCategory,
+  readRecordsByBatchIds,
+  readStore,
+  readUserIds,
+  updateStore
+} from "../data/store.js";
 import { config } from "../config.js";
 import { getNowIso, isAfter, subtractHours, toHourKey } from "../utils/time.js";
 import {
@@ -276,6 +288,28 @@ function getLatestTrustedBatches(store, categoryId, limit = 2) {
     .slice(0, limit);
 }
 
+function getLatestTrustedBatchesFast(categoryId, limit = 2) {
+  const candidates = readBatchesByCategory(categoryId, 16).filter(isTrustedBatch);
+  const trusted = [];
+
+  for (const batch of candidates) {
+    const records = readRecordsByBatchIds([batch.id]);
+    if (
+      records.some((record) => Number(record.rank) === 1) &&
+      !isSuspiciousRankingQuality(records) &&
+      records.filter((record) => record.videoTitle || record.videoPublishedAt || record.videoCountRange).length >= 3
+    ) {
+      trusted.push(batch);
+    }
+
+    if (trusted.length >= limit) {
+      break;
+    }
+  }
+
+  return trusted;
+}
+
 function trimHistory(store) {
   const cutoff = subtractHours(getNowIso(), config.historyRetentionHours);
   store.captureBatches = store.captureBatches.filter((batch) => isAfter(batch.capturedAt, cutoff));
@@ -307,6 +341,23 @@ function ensureCategory(store, payload) {
     ownerUserIds: store.users.map((user) => user.id),
     createdAt: getNowIso()
   });
+}
+
+function makeCategoryForPayload(payload) {
+  const categoryId = makeCategoryId(payload.categoryId, payload.categoryName);
+  const categoryName = normalizeCategoryNameToStandard(payload.categoryId, payload.categoryName);
+
+  if (!categoryId || !categoryName) {
+    return null;
+  }
+
+  return {
+    id: categoryId,
+    name: categoryName,
+    code: categoryName.split("/").join("-").toLowerCase(),
+    ownerUserIds: readUserIds(),
+    createdAt: getNowIso()
+  };
 }
 
 export function saveCapture(payload) {
@@ -354,45 +405,42 @@ export function saveCapture(payload) {
     throw error;
   }
 
-  updateStore((store) => {
-    trimHistory(store);
-    ensureCategory(store, payload);
-    store.captureBatches.push(batch);
-    store.records.push(...normalized);
-    return store;
-  });
+  const category = makeCategoryForPayload(payload);
+  if (category) {
+    appendCaptureBatch({
+      category,
+      batch,
+      records: normalized,
+      cutoff: subtractHours(getNowIso(), config.historyRetentionHours)
+    });
+  } else {
+    updateStore((store) => {
+      trimHistory(store);
+      ensureCategory(store, payload);
+      store.captureBatches.push(batch);
+      store.records.push(...normalized);
+      return store;
+    });
+  }
 
   return batch;
 }
 
 export function getCategoriesForUser(user) {
-  const store = readStore();
+  const storeCategories = readCategories();
+  const categoryStats = readCategoryStats();
   const standardCategoryOrder = new Map(
     STANDARD_CATEGORIES.map((category, index) => [category.id, index])
   );
-  const storeCategories =
+  const visibleStoreCategories =
     user.role === "admin"
-      ? store.categories
-      : store.categories.filter((entry) => entry.ownerUserIds.includes(user.id));
-  const recordCounts = new Map();
-  const batchTimes = new Map();
-  const visibleCategoryIds = new Set(storeCategories.map((entry) => String(entry.id || "")));
-
-  for (const record of store.records) {
-    const categoryId = String(record.categoryId || "");
-    recordCounts.set(categoryId, (recordCounts.get(categoryId) || 0) + 1);
-  }
-
-  for (const batch of store.captureBatches) {
-    const categoryId = String(batch.categoryId || "");
-    const previous = batchTimes.get(categoryId) || "";
-    if (!previous || previous < batch.capturedAt) {
-      batchTimes.set(categoryId, batch.capturedAt);
-    }
-  }
+      ? storeCategories
+      : storeCategories.filter((entry) => entry.ownerUserIds.includes(user.id));
+  const visibleCategoryIds = new Set(visibleStoreCategories.map((entry) => String(entry.id || "")));
 
   const standardCategories = STANDARD_CATEGORIES.map((category) => {
-    const existing = store.categories.find((entry) => String(entry.id || "") === category.id);
+    const existing = storeCategories.find((entry) => String(entry.id || "") === category.id);
+    const stats = categoryStats.get(category.id) || { recordCount: 0, latestCapturedAt: "" };
     return {
       ...(existing || {}),
       id: category.id,
@@ -401,19 +449,22 @@ export function getCategoriesForUser(user) {
       level1: category.level1,
       level2: category.level2,
       isStandard: true,
-      hasData: (recordCounts.get(category.id) || 0) > 0,
-      latestCapturedAt: batchTimes.get(category.id) || ""
+      hasData: stats.recordCount > 0,
+      latestCapturedAt: stats.latestCapturedAt || ""
     };
   });
 
-  const extraCategories = storeCategories
+  const extraCategories = visibleStoreCategories
     .filter((category) => !findStandardCategoryById(category.id) && !findStandardCategoryByName(category.name))
-    .map((category) => ({
-      ...category,
-      isStandard: false,
-      hasData: (recordCounts.get(String(category.id || "")) || 0) > 0,
-      latestCapturedAt: batchTimes.get(String(category.id || "")) || ""
-    }));
+    .map((category) => {
+      const stats = categoryStats.get(String(category.id || "")) || { recordCount: 0, latestCapturedAt: "" };
+      return {
+        ...category,
+        isStandard: false,
+        hasData: stats.recordCount > 0,
+        latestCapturedAt: stats.latestCapturedAt || ""
+      };
+    });
 
   const visibleCategories =
     user.role === "admin"
@@ -844,6 +895,42 @@ function buildRankingRawRow(record, previous, latestBatches) {
 }
 
 export function getRankingRows(user, filters = {}) {
+  if (filters.categoryId && !filters.captureHour) {
+    const allowedCategoryIds = new Set(getCategoriesForUser(user).map((entry) => entry.id));
+    if (!allowedCategoryIds.has(String(filters.categoryId))) {
+      return [];
+    }
+
+    const latestBatches = getLatestTrustedBatchesFast(filters.categoryId, 2);
+    const batchRecords = readRecordsByBatchIds(latestBatches.map((batch) => batch.id))
+      .filter((record) => isShortVideoRanking(record.rankingType))
+      .filter((record) => record.productName || record.videoTitle)
+      .filter((record) => !isHeaderLikeRecord(record));
+    const backfillRecords = readRecentRecordsByCategory(filters.categoryId, 1200)
+      .filter((record) => isShortVideoRanking(record.rankingType));
+    const backfillIndex = buildRecordBackfillIndex(backfillRecords);
+    const currentBatchId = latestBatches[0]?.id || null;
+    const previousBatchId = latestBatches[1]?.id || null;
+    const previousBatchRecords = previousBatchId
+      ? batchRecords
+          .filter((record) => record.batchId === previousBatchId)
+          .map((record) => backfillRecordForDisplay(record, backfillIndex))
+      : [];
+    const previousByKey = new Map(previousBatchRecords.map((record) => [makeRecordKey(record), record]));
+
+    if (!currentBatchId) {
+      return [];
+    }
+
+    const rawRows = batchRecords
+      .filter((record) => record.batchId === currentBatchId)
+      .map((record) => backfillRecordForDisplay(record, backfillIndex))
+      .sort((left, right) => left.rank - right.rank)
+      .map((record) => buildRankingRawRow(record, previousByKey.get(makeRecordKey(record)), latestBatches));
+    const qualitySummary = buildQualitySummary(rawRows);
+    return rawRows.map((row) => ({ ...row, qualitySummary }));
+  }
+
   const records = getVisibleRecords(user, filters);
   const store = readStore();
   const latestBatches = filters.categoryId ? getLatestTrustedBatches(store, filters.categoryId, 2) : [];
@@ -1002,18 +1089,14 @@ export function getLatestBatchByCategory(categoryId) {
 
 export function getOverview(user) {
   const categories = getCategoriesForUser(user);
-  const records = getVisibleRecords(user);
-  const latestHour = records[0]?.captureHour || null;
-  const latestRecords = latestHour ? records.filter((entry) => entry.captureHour === latestHour) : [];
-  const uniqueProducts = new Set(latestRecords.map((entry) => entry.productId || entry.productName));
-  const categoriesWithData = new Set(latestRecords.map((entry) => entry.categoryId));
+  const overview = readOverviewStats(SHORT_VIDEO_RANKING);
 
   return {
-    latestHour,
+    latestHour: overview.latestHour,
     categoryCount: categories.length,
-    categoriesWithData: categoriesWithData.size,
-    recordCount: latestRecords.length,
-    productCount: uniqueProducts.size
+    categoriesWithData: overview.categoriesWithData,
+    recordCount: overview.recordCount,
+    productCount: overview.productCount
   };
 }
 
@@ -1188,11 +1271,11 @@ export function getHourlyDiffs(user, categoryId) {
   };
 }
 
-export function getCaptureHistory(user) {
-  const store = readStore();
+export function getCaptureHistory(user, options = {}) {
   const allowedCategoryIds = new Set(getCategoriesForUser(user).map((entry) => entry.id));
+  const limit = Math.min(Math.max(Number(options.limit || 300), 50), 1000);
 
-  return store.captureBatches
+  return readCaptureBatches(limit)
     .filter((entry) => allowedCategoryIds.has(String(entry.categoryId || "")))
     .filter(isTrustedBatch)
     .sort((left, right) => (left.capturedAt < right.capturedAt ? 1 : -1));

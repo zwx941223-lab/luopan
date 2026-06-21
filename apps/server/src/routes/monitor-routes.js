@@ -34,7 +34,7 @@ router.get("/ranking-rows", requireAuth, (req, res) => {
 });
 
 router.get("/history", requireAuth, (req, res) => {
-  return res.json(getCaptureHistory(req.user));
+  return res.json(getCaptureHistory(req.user, { limit: req.query.limit }));
 });
 
 router.get("/diffs", requireAuth, (req, res) => {

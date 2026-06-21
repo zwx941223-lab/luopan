@@ -1,5 +1,16 @@
 # DY Monitor Project Status
 
+## 2026-06-21 - server performance hotfix
+
+- Optimized high-traffic backend reads for large datasets.
+- Category list now uses SQLite aggregate stats instead of loading all records into memory.
+- Ranking detail now reads only the selected category's latest trusted batches plus limited recent backfill data.
+- Overview stats now use SQL aggregation for the latest capture hour.
+- Capture upload now appends the current batch directly to SQLite instead of reading and rewriting the whole database.
+- Capture history now returns a limited recent batch list and no longer loads all records.
+- Web bumped to `web-v1.7.98` for the lighter capture-history request.
+- This keeps plugin capture behavior unchanged and targets web lag after multi-day full-category retention.
+
 ## 2026-06-18 - plugin-v4.0.0
 
 - Switched plugin version naming from test builds to the formal `plugin-v4.0.0`.

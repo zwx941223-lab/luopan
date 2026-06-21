@@ -58,5 +58,5 @@ export function fetchDiffs(token, categoryId = "") {
 }
 
 export function fetchHistory(token) {
-  return apiRequest("/monitor/history", { token });
+  return apiRequest("/monitor/history?limit=300", { token });
 }
