@@ -181,7 +181,6 @@ function sanitizeRecord(input, batch) {
     productId: input.productId || "",
     productName: input.productName || "",
     productUrl: input.productUrl || "",
-    productShopId: input.productShopId || input.product_shop_id || input.shopId || input.shop_id || "",
     compassDetailUrl: input.compassDetailUrl || input.detailUrl || "",
     productImage: input.productImage || "",
     shopName: input.shopName || "",
@@ -646,7 +645,6 @@ function buildRecordBackfillIndex(records) {
     if (!index.has(key)) {
       index.set(key, {
         productImage: "",
-        productShopId: "",
         compassDetailUrl: "",
         paymentRange: "",
         clickRange: "",
@@ -657,7 +655,6 @@ function buildRecordBackfillIndex(records) {
 
     const entry = index.get(key);
     entry.productImage ||= record.productImage || "";
-    entry.productShopId ||= record.productShopId || "";
     entry.compassDetailUrl ||= record.compassDetailUrl || "";
     entry.paymentRange ||= record.paymentRange || "";
     entry.clickRange ||= record.clickRange || "";
@@ -707,7 +704,6 @@ function backfillRecordForDisplay(record, backfillIndex) {
   return {
     ...record,
     productImage: record.productImage || fill.productImage || "",
-    productShopId: record.productShopId || fill.productShopId || "",
     compassDetailUrl: record.compassDetailUrl || fill.compassDetailUrl || "",
     paymentRange: record.paymentRange || fill.paymentRange || "",
     clickRange: record.clickRange || fill.clickRange || "",
@@ -933,7 +929,6 @@ function buildRankingRawRow(record, previous, latestBatches) {
     productId: record.productId,
     productName: record.productName,
     productUrl: record.productUrl,
-    productShopId: record.productShopId || "",
     compassDetailUrl: record.compassDetailUrl || "",
     productImage: record.productImage,
     shopName: record.shopName,
@@ -1198,7 +1193,6 @@ export function getRankingRows(user, filters = {}) {
         productId: primary.productId,
         productName: primary.productName,
         productUrl: primary.productUrl,
-        productShopId: primary.productShopId || "",
         compassDetailUrl: primary.compassDetailUrl || "",
         productImage: primary.productImage,
         shopName: primary.shopName,

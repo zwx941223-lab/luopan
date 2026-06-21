@@ -1,10 +1,5 @@
 # DY Monitor Project Status
 
-## 2026-06-21 - plugin-v4.0.7 + web-v1.8.3
-
-- Added `productShopId` capture and storage for Luopan rank rows.
-- Built Luopan `查看详情` links from `productId` + `productShopId` when no direct detail URL is available.
-
 ## 2026-06-21 - plugin-v4.0.6 + web-v1.8.2
 
 - Added `compassDetailUrl` capture for Luopan `查看详情` links and displayed it as a separate table action.
