@@ -3,6 +3,13 @@ import { APP_VERSION } from "../config.js";
 
 const logs = [
   {
+    version: "web-v1.9.0 / plugin-v4.0.8",
+    date: "2026-06-22",
+    items: [
+      "按 xf1 存档恢复商品图字段识别逻辑，重新启用 image/img/pic 字段，同时保留 TOP 徽章、店铺头像和二维码过滤。"
+    ]
+  },
+  {
     version: "web-v1.9.0 / plugin-v4.0.7",
     date: "2026-06-22",
     items: [

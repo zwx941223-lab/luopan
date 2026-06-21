@@ -552,7 +552,7 @@
     const url = String(value || "").trim();
     if (!url || !looksLikeImageUrl(url)) return false;
     if (looksLikeRankBadgeUrl(url)) return false;
-    if (/avatar|logo|shop|store|qrcode|aweme-qrcode|video|aweme|poster|cover/i.test(url)) return false;
+    if (/avatar|logo|shop|store|qrcode|aweme-qrcode/i.test(url)) return false;
     return true;
   }
 
@@ -713,24 +713,7 @@
       getByKeysDeep(item, ["productName", "product_name", "goodsName", "goods_name", "itemName", "item_name", "title", "name"]) ||
       getByKeyFragmentsDeep(item, ["product_name", "goods_name", "item_name"]);
     const rank = normalizeRank(numberByKeysDeep(item, ["rank", "ranking", "rankNo", "rank_no", "rankValue", "rank_value"]), page, index);
-    const productImage = mediaUrl(item, [
-      "productimage",
-      "product_image",
-      "goodsimage",
-      "goods_image",
-      "itemimage",
-      "item_image",
-      "productpic",
-      "product_pic",
-      "goods_pic",
-      "mainimage",
-      "main_image",
-      "picurl",
-      "pic_url",
-      "imgurl",
-      "img_url",
-      "thumbnail"
-    ]);
+    const productImage = mediaUrl(item, ["productimage", "product_image", "goodsimage", "goods_image", "image", "img", "pic"]);
 
     return {
       categoryId: meta.categoryId || "",
