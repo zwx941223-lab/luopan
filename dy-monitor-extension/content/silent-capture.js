@@ -512,6 +512,28 @@
     return Number.isFinite(value) ? value : 0;
   }
 
+  function productShopIdFromItem(item) {
+    const explicit = getByKeysDeep(item, [
+      "productShopId",
+      "product_shop_id",
+      "product_shopid",
+      "shopId",
+      "shop_id",
+      "shopid",
+      "storeId",
+      "store_id",
+      "sellerId",
+      "seller_id",
+      "authorShopId",
+      "author_shop_id"
+    ]);
+    if (explicit) return explicit;
+
+    const shopUrl = getByKeyFragmentsDeep(item, ["shopurl", "shop_url", "storeurl", "store_url"]);
+    const match = String(shopUrl || "").match(/(?:shop_id|shopId|shopid|store_id|storeId|seller_id|sellerId)=([^&#]+)/i);
+    return match ? decodeURIComponent(match[1]) : "";
+  }
+
   function mediaUrl(input, fragments) {
     let found = "";
     objectValuesDeep(input, (value) => {
@@ -668,6 +690,7 @@
       productId: getByKeysDeep(item, ["productId", "product_id", "goodsId", "goods_id", "itemId", "item_id", "id"]),
       productName,
       productUrl: getByKeyFragmentsDeep(item, ["producturl", "detailurl", "schema", "href", "link"]),
+      productShopId: productShopIdFromItem(item),
       compassDetailUrl: getByKeyFragmentsDeep(item, ["compassdetailurl", "compass_detail_url", "analysisurl", "analysis_url"]),
       productImage: mediaUrl(item, ["productimage", "product_image", "goodsimage", "goods_image", "image", "img", "pic"]),
       shopName: getByKeysDeep(item, ["shopName", "shop_name", "storeName", "store_name"]),

@@ -186,7 +186,27 @@ function getDisplayProductUrl(row) {
 
 function getCompassDetailUrl(row) {
   const url = String(row.compassDetailUrl || "").trim();
-  return /^(https?:)?\/\//i.test(url) ? url : "";
+  if (/^(https?:)?\/\//i.test(url)) {
+    return url;
+  }
+
+  const productId = String(row.productId || "").trim();
+  const productShopId = String(row.productShopId || "").trim();
+  if (!productId || !productShopId) {
+    return "";
+  }
+
+  const params = new URLSearchParams({
+    product_id: productId,
+    product_shop_id: productShopId,
+    date_type: "21",
+    date_value: "1781366400,1781884800",
+    from_page: "/shop/chance/product-rank",
+    btm_ppre: "a6187.b904798.c0.d0",
+    btm_pre: "a6187.b831783.c0.d0"
+  });
+  params.append("prepages[0]", "/shop/chance/rank-product");
+  return `https://compass.jinritemai.com/shop/chance/rank-product/detail?${params.toString()}`;
 }
 
 function renderDiffItems(row) {
