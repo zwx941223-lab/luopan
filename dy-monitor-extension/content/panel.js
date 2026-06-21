@@ -278,7 +278,4 @@
   });
 
   renderCategories();
-  window.setTimeout(() => {
-    if (!timerId) startTimer();
-  }, 3000);
 })();

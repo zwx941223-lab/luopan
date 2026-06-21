@@ -1,5 +1,10 @@
 # DY Monitor Project Status
 
+## 2026-06-21 - plugin-v4.0.5 manual start
+
+- Removed the panel auto-start timer on page open.
+- The plugin now waits for the operator to click `全类目采集`, `立即执行一轮`, or explicitly enable the 90-minute timer before running.
+
 ## 2026-06-21 - web-v1.8.0 server performance hardening
 
 - Added short-lived category stats caching to avoid full aggregate work on every page/plugin panel load.
