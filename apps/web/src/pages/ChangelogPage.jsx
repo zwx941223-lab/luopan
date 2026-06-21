@@ -3,6 +3,13 @@ import { APP_VERSION } from "../config.js";
 
 const logs = [
   {
+    version: "web-v1.9.0 / plugin-v4.0.7",
+    date: "2026-06-22",
+    items: [
+      "修复新采集商品图缺失问题：补充识别懒加载图片、背景图和更多商品图字段，同时继续过滤 TOP 徽章、店铺头像和视频封面。"
+    ]
+  },
+  {
     version: "web-v1.9.0 / plugin-v4.0.6",
     date: "2026-06-21",
     items: [

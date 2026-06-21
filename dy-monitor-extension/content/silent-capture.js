@@ -552,13 +552,37 @@
     const url = String(value || "").trim();
     if (!url || !looksLikeImageUrl(url)) return false;
     if (looksLikeRankBadgeUrl(url)) return false;
-    if (/avatar|logo|shop|store|qrcode|aweme-qrcode/i.test(url)) return false;
+    if (/avatar|logo|shop|store|qrcode|aweme-qrcode|video|aweme|poster|cover/i.test(url)) return false;
     return true;
   }
 
+  function normalizeImageUrl(value) {
+    const text = String(value || "").trim();
+    if (!text) return "";
+    const cssMatch = text.match(/url\((['"]?)(.*?)\1\)/i);
+    const raw = cssMatch ? cssMatch[2] : text.split(/\s+/)[0];
+    if (!/^(https?:)?\/\//i.test(raw)) return "";
+    return raw.startsWith("//") ? `https:${raw}` : raw;
+  }
+
+  function imageCandidatesFromElement(element) {
+    const candidates = [];
+    const attrs = ["src", "data-src", "data-original", "data-url", "data-lazy-src", "data-lazyload", "lazy-src"];
+    for (const attr of attrs) {
+      candidates.push(normalizeImageUrl(element.getAttribute?.(attr)));
+    }
+    const srcset = element.getAttribute?.("srcset") || element.getAttribute?.("data-srcset") || "";
+    for (const item of srcset.split(",")) {
+      candidates.push(normalizeImageUrl(item.trim().split(/\s+/)[0]));
+    }
+    candidates.push(normalizeImageUrl(element.style?.backgroundImage));
+    candidates.push(normalizeImageUrl(getComputedStyle(element).backgroundImage));
+    return candidates.filter(Boolean);
+  }
+
   function firstProductImageFromElement(root) {
-    return Array.from(root.querySelectorAll("img[src]"))
-      .map((image) => image.src || "")
+    return Array.from(root.querySelectorAll("img, [style], [data-src], [data-original], [data-url], [data-lazy-src], [data-srcset]"))
+      .flatMap(imageCandidatesFromElement)
       .find(looksLikeProductImageUrl) || "";
   }
 
@@ -689,7 +713,24 @@
       getByKeysDeep(item, ["productName", "product_name", "goodsName", "goods_name", "itemName", "item_name", "title", "name"]) ||
       getByKeyFragmentsDeep(item, ["product_name", "goods_name", "item_name"]);
     const rank = normalizeRank(numberByKeysDeep(item, ["rank", "ranking", "rankNo", "rank_no", "rankValue", "rank_value"]), page, index);
-    const productImage = mediaUrl(item, ["productimage", "product_image", "goodsimage", "goods_image", "itemimage", "item_image", "productpic", "goods_pic", "mainimage", "main_image"]);
+    const productImage = mediaUrl(item, [
+      "productimage",
+      "product_image",
+      "goodsimage",
+      "goods_image",
+      "itemimage",
+      "item_image",
+      "productpic",
+      "product_pic",
+      "goods_pic",
+      "mainimage",
+      "main_image",
+      "picurl",
+      "pic_url",
+      "imgurl",
+      "img_url",
+      "thumbnail"
+    ]);
 
     return {
       categoryId: meta.categoryId || "",
