@@ -6,6 +6,14 @@ import { fetchHistory, useDashboardData } from "../hooks/useDashboardData.js";
 
 const PAGE_SIZE = 50;
 
+function formatDuration(ms) {
+  const value = Number(ms || 0);
+  if (!Number.isFinite(value) || value <= 0) {
+    return "-";
+  }
+  return value < 1000 ? `${value}ms` : `${Math.round(value / 100) / 10}s`;
+}
+
 export function HistoryPage() {
   const [page, setPage] = useState(1);
   const history = useDashboardData((token) => fetchHistory(token, { page, pageSize: PAGE_SIZE }), [page]);
@@ -19,7 +27,7 @@ export function HistoryPage() {
 
   return (
     <div className="page-stack">
-      <PageSection title="采集历史" subtitle="查看每次静默抓取的时间、类目和记录数">
+      <PageSection title="采集历史" subtitle="查看每次静默抓取的时间、类目、记录数和耗时">
         <StatusPanel loading={history.loading} error={history.error} empty={!items.length}>
           <div className="table-shell">
             <table className="data-table">
@@ -30,6 +38,11 @@ export function HistoryPage() {
                   <th>榜单</th>
                   <th>页数</th>
                   <th>记录数</th>
+                  <th>切换</th>
+                  <th>采集</th>
+                  <th>上传</th>
+                  <th>入库</th>
+                  <th>总耗时</th>
                   <th>模式</th>
                 </tr>
               </thead>
@@ -41,7 +54,12 @@ export function HistoryPage() {
                     <td>{item.rankingType}</td>
                     <td>{item.pageLimit}</td>
                     <td>{item.recordCount}</td>
-                    <td>{item.triggerMode === "manual" ? "手动" : "定时"}</td>
+                    <td>{formatDuration(item.timing?.switchMs)}</td>
+                    <td>{formatDuration(item.timing?.collectMs)}</td>
+                    <td>{formatDuration(item.timing?.uploadMs)}</td>
+                    <td>{formatDuration(item.timing?.serverUploadMs)}</td>
+                    <td>{formatDuration(item.timing?.totalMs)}</td>
+                    <td>{item.triggerMode === "manual" ? "手动" : "自动"}</td>
                   </tr>
                 ))}
               </tbody>

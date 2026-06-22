@@ -164,20 +164,21 @@
       .sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
   }
 
-  function menuItem(columnIndex, label) {
-    const target = compact(label);
-    const column = menuColumns()[columnIndex];
-    if (!column) return null;
-    return Array.from(column.querySelectorAll("li,div,span,[role='option'],[role='menuitem']"))
+  function oldStyleMenuItem(level, name, forceColumn = false) {
+    const menus = menuColumns();
+    const menu = menus[level];
+    const findInMenu = (scope) => Array.from(scope.querySelectorAll(".ecom-cascader-menu-item,[class*='menu-item'],li,[role='option']"))
       .filter(visible)
-      .map((node) => ({
-        node: node.closest("li,[role='option'],[role='menuitem'],div") || node,
-        label: compact(node.getAttribute("title") || text(node))
-      }))
-      .find((item) => item.label === target || item.label.startsWith(target))?.node || null;
-  }
+      .find((item) => {
+        const value = text(item).trim();
+        return value === name || value.startsWith(`${name}\uFF08`) || value.startsWith(`${name}(`) || compact(value) === compact(name);
+      }) || null;
 
-  function oldStyleMenuItem(level, name) {
+    if (menu) {
+      const scoped = findInMenu(menu);
+      if (scoped || forceColumn) return scoped;
+    }
+
     const escaped = String(name || "").replace(/["\\]/g, "\\$&");
     const byTitle = document.querySelector(`.ecom-cascader-menu-item[title="${escaped}"]`);
     if (byTitle && visible(byTitle)) return byTitle;
@@ -185,15 +186,18 @@
     const byRole = document.querySelector(`body [role="option"][data-level="${level + 1}"][title="${escaped}"]`);
     if (byRole && visible(byRole)) return byRole;
 
-    const menus = menuColumns();
-    const menu = menus[level];
     if (!menu) return null;
-    return Array.from(menu.querySelectorAll(".ecom-cascader-menu-item,[class*='menu-item'],li,[role='option']"))
+    return findInMenu(menu);
+  }
+
+  function sameNameNextColumnItem(name, previousRect) {
+    if (!previousRect) return null;
+    return Array.from(document.querySelectorAll(".ecom-cascader-menu-item,[class*='menu-item'],li,[role='option']"))
       .filter(visible)
-      .find((item) => {
-        const value = text(item).trim();
-        return value === name || value.startsWith(`${name}（`) || value.startsWith(`${name}(`) || compact(value) === compact(name);
-      }) || null;
+      .map((item) => ({ item, rect: item.getBoundingClientRect(), value: text(item).trim() }))
+      .filter(({ rect }) => rect.left > previousRect.left + Math.max(30, previousRect.width * 0.5))
+      .filter(({ value }) => value === name || value.startsWith(`${name}\uFF08`) || value.startsWith(`${name}(`) || compact(value) === compact(name))
+      .sort((a, b) => a.rect.left - b.rect.left || a.rect.top - b.rect.top)[0]?.item || null;
   }
 
   function actionButton() {
@@ -212,16 +216,28 @@
     document.dispatchEvent(new KeyboardEvent("keyup", { key: "Escape", code: "Escape", bubbles: true }));
   }
 
-  async function waitForCategoryLabel(level2, timeoutMs = 2600) {
-    const target = compact(level2);
+  function isAlcoholSameNameCategory(level1, level2) {
+    const alcohol = "\u9152\u7C7B";
+    return compact(level1) === alcohol && compact(level2) === alcohol;
+  }
+
+  function categoryLabelMatches(level1, level2) {
+    const label = compact(currentCategoryLabel());
+    if (isAlcoholSameNameCategory(level1, level2)) {
+      return label.includes(compact(`${level1}/${level2}/\u5168\u90E8`));
+    }
+    return label.includes(compact(level2));
+  }
+
+  async function waitForCategoryLabel(level1, level2, timeoutMs = 2600) {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
-      if (compact(currentCategoryLabel()).includes(target)) {
+      if (categoryLabelMatches(level1, level2)) {
         return true;
       }
       await sleep(160);
     }
-    return compact(currentCategoryLabel()).includes(target);
+    return categoryLabelMatches(level1, level2);
   }
 
   async function applyCategoryOnce(category, level1, level2, attempt) {
@@ -231,13 +247,17 @@
     if (!opened) return { ok: false, message: "\u7c7b\u76ee\u4e0b\u62c9\u6846\u672a\u6253\u5f00" };
 
     const path = [level1, level2];
+    let previousRect = null;
     for (let level = 0; level < path.length; level += 1) {
       const name = path[level];
       let found = false;
       for (let retry = 0; retry < 4 && !found; retry += 1) {
         if (retry > 0) await sleep(500);
-        const node = oldStyleMenuItem(level, name);
+        const node = isAlcoholSameNameCategory(level1, level2) && level === 1
+          ? sameNameNextColumnItem(name, previousRect)
+          : oldStyleMenuItem(level, name);
         if (node) {
+          previousRect = node.getBoundingClientRect();
           fullClick(node);
           found = true;
           break;
@@ -255,6 +275,7 @@
       if (retry > 0) await sleep(1000);
       const menus = menuColumns();
       for (let index = menus.length - 1; index >= 0; index -= 1) {
+        if (isAlcoholSameNameCategory(level1, level2) && index < 2) continue;
         const items = Array.from(menus[index].querySelectorAll(".ecom-cascader-menu-item,[class*='menu-item'],li,[role='option']"))
           .filter(visible);
         const allItem = items.find((item) => compact(text(item)) === compact("\u5168\u90e8"));
@@ -272,7 +293,7 @@
     }
 
     await sleep(2000);
-    const ok = await waitForCategoryLabel(level2, 2400);
+    const ok = await waitForCategoryLabel(level1, level2, 2400);
     return {
       ok,
       message: ok ? "\u7c7b\u76ee\u5207\u6362\u6210\u529f" : "\u7c7b\u76ee\u5c1a\u672a\u751f\u6548"
@@ -292,7 +313,7 @@
     await ensureTopButton(LABELS.ranking, 450);
     await ensureTopButton(LABELS.realtime, 450);
 
-    if (compact(currentCategoryLabel()).includes(compact(level2))) {
+    if (categoryLabelMatches(level1, level2)) {
       return {
         ok: true,
         detected: { categoryId: category.categoryId || category.id || "", categoryName: `${level1}/${level2}` },
@@ -303,7 +324,7 @@
     let last = null;
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       last = await applyCategoryOnce(category, level1, level2, attempt);
-      if (last.ok || compact(currentCategoryLabel()).includes(compact(level2))) {
+      if (last.ok || categoryLabelMatches(level1, level2)) {
         return {
           ok: true,
           detected: { categoryId: category.categoryId || category.id || "", categoryName: `${level1}/${level2}` },
@@ -374,10 +395,30 @@
     return Array.from(map.entries()).map(([num, el]) => ({ num, el })).sort((a, b) => a.num - b.num);
   }
 
+  function isActivePageElement(node, container) {
+    let current = node;
+    while (current && current !== container) {
+      const className = String(current.className || "");
+      if (
+        current.getAttribute?.("aria-current") ||
+        /(^|[-_\s])(active|current|selected)([-_\s]|$)/i.test(className)
+      ) {
+        return true;
+      }
+      current = current.parentElement;
+    }
+    return false;
+  }
+
   function currentPage() {
     const pager = pagination();
-    const active = pager?.querySelector("[class*='active'],[class*='current'],[aria-current]");
-    return Number(compact(text(active)).replace(/[^\d]/g, "")) || 1;
+    if (!pager) return 1;
+    const activeItem = pageItems(pager).find((item) => isActivePageElement(item.el, pager));
+    if (activeItem?.num) return activeItem.num;
+    const active = Array.from(pager.querySelectorAll("[aria-current],[class*='active'],[class*='current'],[class*='selected']"))
+      .filter(visible)
+      .find((node) => /^\d+$/.test(compact(text(node))));
+    return Number(compact(text(active))) || 1;
   }
 
   function pageButton(page) {
@@ -845,7 +886,7 @@
     return { rows: [], candidate: null };
   }
 
-  async function waitForApiRows(meta, page, after, timeoutMs = 3800) {
+  async function waitForApiRows(meta, page, after, timeoutMs = 10000) {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
       const result = bestRecentRows(meta, page, after);
@@ -881,15 +922,6 @@
       let result = await waitForApiRows(resolvedMeta, page, before);
       if (page === 1 && !result.rows.length) {
         result = bestRecentRows(resolvedMeta, page, keepAfter);
-      }
-      if (!result.rows.length) {
-        const fallbackRows = visibleTableFallbackRows(resolvedMeta, page);
-        if (fallbackRows.length) {
-          result = {
-            rows: fallbackRows,
-            candidate: { url: "dom-fallback" }
-          };
-        }
       }
       result = { ...result, rows: mergeVisibleMetrics(result.rows, page) };
       records.push(...result.rows);

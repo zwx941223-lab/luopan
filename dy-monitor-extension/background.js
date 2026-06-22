@@ -37,10 +37,54 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         }
 
         const data = await response.json().catch(() => ({}));
-        sendResponse({ ok: true, data });
+        sendResponse({
+          ok: true,
+          data,
+          uploadMs: Number(response.headers.get("X-DY-Monitor-Upload-Ms") || 0)
+        });
       })
       .catch((error) => {
-        sendResponse({ ok: false, message: `?????${error.message || "Upload failed"}` });
+        sendResponse({ ok: false, message: error.message || "Upload failed" });
+      });
+
+    return true;
+  }
+
+  if (message?.type === "auto-capture-state") {
+    fetch(`${message.apiBaseUrl}/monitor/capture/auto-state`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-extension-token": message.extensionToken
+      },
+      body: JSON.stringify(message.payload || {})
+    })
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        sendResponse(response.ok ? { ok: true, data } : { ok: false, message: data.message || "State update failed" });
+      })
+      .catch((error) => {
+        sendResponse({ ok: false, message: error.message || "State update failed" });
+      });
+
+    return true;
+  }
+
+  if (message?.type === "capture-timing") {
+    fetch(`${message.apiBaseUrl}/monitor/capture/timing`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-extension-token": message.extensionToken
+      },
+      body: JSON.stringify(message.payload || {})
+    })
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        sendResponse(response.ok ? { ok: true, data } : { ok: false, message: data.message || "Timing update failed" });
+      })
+      .catch((error) => {
+        sendResponse({ ok: false, message: error.message || "Timing update failed" });
       });
 
     return true;

@@ -1,11 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { CategoryFilter } from "../components/CategoryFilter.jsx";
 import { RecordsTable } from "../components/RecordsTable.jsx";
 import { StatusPanel } from "../components/StatusPanel.jsx";
 import { fetchCategories, fetchRankingRows, useDashboardData } from "../hooks/useDashboardData.js";
-import { useAuth } from "../auth.jsx";
-import { apiRequest } from "../lib/api.js";
 import { APP_VERSION } from "../config.js";
 
 const PAGE_SIZE = 50;
@@ -32,7 +30,6 @@ function formatBatchTime(value) {
 }
 
 export function RankingPage() {
-  const { token } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const categories = useDashboardData(fetchCategories, []);
   const [categoryId, setCategoryId] = useState(() => searchParams.get("categoryId") || "");
@@ -107,20 +104,6 @@ export function RankingPage() {
     setSearchParams(nextParams, { replace: true });
   }
 
-  async function handleExport() {
-    const query = effectiveCategoryId ? `?categoryId=${encodeURIComponent(effectiveCategoryId)}` : "";
-    const blob = await apiRequest(`/monitor/export${query}`, {
-      token,
-      responseType: "blob"
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "dy-monitor-export.xlsx";
-    link.click();
-    URL.revokeObjectURL(url);
-  }
-
   return (
     <div className="page-stack ranking-workbench">
       <section className="compass-hero">
@@ -165,9 +148,6 @@ export function RankingPage() {
               <span>数据口径</span>
               <div className="fixed-filter-value">实时数据</div>
             </div>
-            <button className="primary-button" onClick={handleExport}>
-              导出数据
-            </button>
           </div>
 
           <div className="filter-footer">

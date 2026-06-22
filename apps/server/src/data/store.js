@@ -7,6 +7,7 @@ import { config } from "../config.js";
 
 const STORE_FILE = path.join(config.dataDir, "store.json");
 const DB_FILE = path.join(config.dataDir, "dy-monitor.db");
+const AUTO_CAPTURE_STATE_KEY = "autoCaptureState";
 const SHORT_VIDEO_RANKING = "\u77ed\u89c6\u9891\u699c";
 const DEFAULT_ADMIN_NAME = "\u7cfb\u7edf\u7ba1\u7406\u5458";
 const DEFAULT_OPERATOR_NAME = "\u8fd0\u8425A";
@@ -14,6 +15,7 @@ const DEFAULT_OPERATOR_NAME = "\u8fd0\u8425A";
 let db;
 let categoryStatsCache = null;
 let categoryStatsCacheAt = 0;
+let lastRetentionCleanupAt = 0;
 
 function nowIso() {
   return new Date().toISOString();
@@ -232,6 +234,28 @@ export function readUserIds() {
   return database.prepare("SELECT id FROM users ORDER BY created_at ASC").all().map((row) => row.id);
 }
 
+export function readUserById(userId) {
+  const id = String(userId || "").trim();
+  if (!id) {
+    return null;
+  }
+
+  const database = openDb();
+  const row = database.prepare("SELECT data FROM users WHERE id = ?").get(id);
+  return row ? parseJson(row.data, null) : null;
+}
+
+export function readUserByUsername(username) {
+  const name = String(username || "").trim();
+  if (!name) {
+    return null;
+  }
+
+  const database = openDb();
+  const row = database.prepare("SELECT data FROM users WHERE username = ?").get(name);
+  return row ? parseJson(row.data, null) : null;
+}
+
 export function readCategoryStats() {
   const now = Date.now();
   if (categoryStatsCache && now - categoryStatsCacheAt < 45_000) {
@@ -239,37 +263,25 @@ export function readCategoryStats() {
   }
 
   const database = openDb();
-  const recordRows = database.prepare(`
-    SELECT category_id AS categoryId, COUNT(*) AS recordCount
-    FROM records
-    GROUP BY category_id
-  `).all();
   const batchRows = database.prepare(`
-    SELECT category_id AS categoryId, MAX(captured_at) AS latestCapturedAt
+    SELECT
+      category_id AS categoryId,
+      MAX(captured_at) AS latestCapturedAt,
+      SUM(record_count) AS recordCount
     FROM capture_batches
     GROUP BY category_id
   `).all();
   const stats = new Map();
-
-  for (const row of recordRows) {
-    const categoryId = String(row.categoryId || "");
-    if (!categoryId) {
-      continue;
-    }
-    stats.set(categoryId, {
-      recordCount: Number(row.recordCount || 0),
-      latestCapturedAt: ""
-    });
-  }
 
   for (const row of batchRows) {
     const categoryId = String(row.categoryId || "");
     if (!categoryId) {
       continue;
     }
-    const current = stats.get(categoryId) || { recordCount: 0, latestCapturedAt: "" };
-    current.latestCapturedAt = row.latestCapturedAt || "";
-    stats.set(categoryId, current);
+    stats.set(categoryId, {
+      recordCount: Number(row.recordCount || 0),
+      latestCapturedAt: row.latestCapturedAt || ""
+    });
   }
 
   categoryStatsCache = new Map(stats);
@@ -429,9 +441,36 @@ export function readCaptureBatches(limit = 300) {
   return rows.map((row) => parseJson(row.data, {}));
 }
 
+export function readCaptureBatchesPage({ page = 1, pageSize = 50, allowedCategoryIds = [] } = {}) {
+  const database = openDb();
+  const safePage = Math.max(1, Number(page || 1));
+  const safePageSize = Math.min(Math.max(Number(pageSize || 50), 1), 200);
+  const offset = (safePage - 1) * safePageSize;
+  const ids = [...new Set((allowedCategoryIds || []).map((id) => String(id || "").trim()).filter(Boolean))];
+  const where = ids.length ? `WHERE category_id IN (${makePlaceholders(ids)})` : "";
+  const total = Number(database.prepare(`SELECT COUNT(*) AS count FROM capture_batches ${where}`).get(...ids).count || 0);
+  const rows = database.prepare(`
+    SELECT data
+    FROM capture_batches
+    ${where}
+    ORDER BY captured_at DESC
+    LIMIT ? OFFSET ?
+  `).all(...ids, safePageSize, offset);
+
+  return {
+    items: rows.map((row) => parseJson(row.data, {})),
+    total,
+    page: safePage,
+    pageSize: safePageSize,
+    totalPages: Math.max(1, Math.ceil(total / safePageSize))
+  };
+}
+
 export function appendCaptureBatch({ category, batch, records, cutoff }) {
+  let didCleanup = false;
   runInTransaction((database) => {
-    if (cutoff) {
+    const shouldCleanup = Boolean(cutoff) && Date.now() - lastRetentionCleanupAt > 10 * 60 * 1000;
+    if (shouldCleanup) {
       database.prepare(`
         DELETE FROM records
         WHERE batch_id IN (
@@ -439,6 +478,8 @@ export function appendCaptureBatch({ category, batch, records, cutoff }) {
         )
       `).run(cutoff);
       database.prepare("DELETE FROM capture_batches WHERE captured_at <= ?").run(cutoff);
+      lastRetentionCleanupAt = Date.now();
+      didCleanup = true;
     }
 
     const existingCategory = database.prepare("SELECT data FROM categories WHERE id = ?").get(category.id);
@@ -519,13 +560,33 @@ export function appendCaptureBatch({ category, batch, records, cutoff }) {
   });
   categoryStatsCache = null;
   categoryStatsCacheAt = 0;
-  if (cutoff) {
+  if (didCleanup) {
     try {
       openDb().exec("PRAGMA wal_checkpoint(PASSIVE)");
     } catch {
       // Checkpoint is a maintenance optimization; failed checkpoints should not block capture.
     }
   }
+}
+
+export function updateCaptureBatchTiming(batchId, timing) {
+  const id = String(batchId || "").trim();
+  if (!id || !timing || typeof timing !== "object") {
+    return null;
+  }
+
+  const database = openDb();
+  const row = database.prepare("SELECT data FROM capture_batches WHERE id = ?").get(id);
+  if (!row) {
+    return null;
+  }
+
+  const batch = {
+    ...parseJson(row.data, {}),
+    timing
+  };
+  database.prepare("UPDATE capture_batches SET data = ? WHERE id = ?").run(JSON.stringify(batch), id);
+  return batch;
 }
 
 function runInTransaction(callback) {
@@ -657,9 +718,64 @@ export function readDiagnostics() {
     sqliteBytes: fileSize(DB_FILE),
     walBytes: fileSize(`${DB_FILE}-wal`),
     shmBytes: fileSize(`${DB_FILE}-shm`),
-    historyRetentionHours: config.historyRetentionHours,
+    historyRetentionDays: config.historyRetentionDays,
+    historyRetentionMode: "china-natural-day",
     categoryStatsCacheAgeMs: categoryStatsCacheAt ? Date.now() - categoryStatsCacheAt : null
   };
+}
+
+export function maintainDatabase() {
+  const database = openDb();
+  database.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+  database.exec("VACUUM");
+  return readDiagnostics();
+}
+
+function defaultAutoCaptureState() {
+  return {
+    enabled: true,
+    status: "idle",
+    activeRoundId: "",
+    lastStartedAt: "",
+    lastCompletedAt: "",
+    lastHeartbeatAt: "",
+    lastError: "",
+    categoryTotal: 0,
+    categoryDone: 0,
+    successCount: 0,
+    failedCount: 0,
+    currentCategoryName: "",
+    recentTimings: []
+  };
+}
+
+export function readAutoCaptureState() {
+  const database = openDb();
+  const row = database.prepare("SELECT value FROM kv_store WHERE key = ?").get(AUTO_CAPTURE_STATE_KEY);
+  return {
+    ...defaultAutoCaptureState(),
+    ...parseJson(row?.value, {})
+  };
+}
+
+export function writeAutoCaptureState(patch = {}) {
+  const database = openDb();
+  const previous = readAutoCaptureState();
+  const next = {
+    ...previous,
+    ...patch,
+    updatedAt: nowIso()
+  };
+  if (Array.isArray(patch.recentTimings)) {
+    next.recentTimings = patch.recentTimings.slice(-80);
+  }
+
+  database.prepare(`
+    INSERT INTO kv_store (key, value) VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `).run(AUTO_CAPTURE_STATE_KEY, JSON.stringify(next));
+
+  return next;
 }
 
 export function appendFeedback({ user, content }) {

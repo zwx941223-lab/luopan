@@ -1256,6 +1256,31 @@ select:disabled {
   font-size: 11px;
 }
 
+.product-cell .today-new-time {
+  display: block;
+  width: fit-content;
+  margin-top: 4px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #eef6ff;
+  color: #175cd3;
+  font-weight: 700;
+}
+
+.status-tag-list .today-new-time,
+td > .today-new-time {
+  display: block;
+  width: fit-content;
+  margin-top: 4px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: #eef6ff;
+  color: #175cd3;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .product-id-line {
   display: inline-flex;
   align-items: center;
@@ -1508,6 +1533,12 @@ select:disabled {
   background: #e0edff;
   font-size: 11px;
   font-weight: 700;
+}
+
+.status-tag.dropped-tag {
+  color: #b54708;
+  background: #fff4e5;
+  border: 1px solid #fedf89;
 }
 
 .compact-list,

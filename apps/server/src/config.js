@@ -13,5 +13,9 @@ export const config = {
   corsOrigin: process.env.CORS_ORIGIN || "http://localhost:5173",
   appUrl: process.env.APP_URL || "http://localhost:5173",
   extensionApiToken: process.env.EXTENSION_API_TOKEN || "dy-monitor-extension-token",
-  historyRetentionHours: Number(process.env.HISTORY_RETENTION_HOURS || 72)
+  historyRetentionDays: Number(process.env.HISTORY_RETENTION_DAYS || 2),
+  autoCaptureIntervalMinutes: Number(process.env.AUTO_CAPTURE_INTERVAL_MINUTES || 90),
+  compassCaptureUrl:
+    process.env.LUOPAN_CAPTURE_URL ||
+    "https://compass.jinritemai.com/shop/chance/product-rank?from_page=%2Fshop%2Fcommodity%2Fproduct-list&btm_ppre=a6187.b901354.c0.d0&btm_pre=a6187.b904798.c0.d0"
 };

@@ -1,18 +1,18 @@
 import { Router } from "express";
-import ExcelJS from "exceljs";
 import { requireAuth, requireExtensionToken } from "../middleware/auth.js";
 import {
   getCaptureHistory,
   getCaptureHistoryPage,
+  getAutoCaptureState,
   getDiagnostics,
-  getHourlyDiffs,
   getHourlyDiffsPage,
   getLatestBatchByCategory,
   getOverview,
-  getRankingRows,
   getRankingRowsPage,
   getVisibleRecords,
-  saveCapture
+  saveCapture,
+  saveCaptureTiming,
+  updateAutoCaptureState
 } from "../services/record-service.js";
 
 const router = Router();
@@ -79,47 +79,38 @@ router.get("/diagnostics", requireAuth, (req, res) => {
   return timedJson(res, startedAt, getDiagnostics());
 });
 
+router.get("/capture/auto-state", requireExtensionToken, (_req, res) => {
+  res.json(getAutoCaptureState());
+});
+
+router.post("/capture/auto-state", requireExtensionToken, (req, res) => {
+  const action = String(req.body?.action || "").trim();
+  if (!action) {
+    return res.status(400).json({ message: "Missing action" });
+  }
+  res.json(updateAutoCaptureState(action, req.body || {}));
+});
+
 router.post("/capture/upload", requireExtensionToken, (req, res) => {
+  const startedAt = Date.now();
   try {
     const batch = saveCapture(req.body);
+    res.setHeader("X-DY-Monitor-Upload-Ms", String(Date.now() - startedAt));
     return res.status(201).json(batch);
   } catch (error) {
+    res.setHeader("X-DY-Monitor-Upload-Ms", String(Date.now() - startedAt));
     return res.status(error.statusCode || 500).json({
       message: error.message || "Capture upload failed"
     });
   }
 });
 
-router.get("/export", requireAuth, async (req, res) => {
-  const workbook = new ExcelJS.Workbook();
-  const sheet = workbook.addWorksheet("short-video-ranking");
-  const records = getVisibleRecords(req.user, {
-    categoryId: req.query.categoryId,
-    captureHour: req.query.captureHour
-  });
-
-  sheet.columns = [
-    { header: "capture_hour", key: "captureHour", width: 20 },
-    { header: "category_name", key: "categoryName", width: 24 },
-    { header: "rank", key: "rank", width: 10 },
-    { header: "product_name", key: "productName", width: 40 },
-    { header: "shop_name", key: "shopName", width: 24 },
-    { header: "video_title", key: "videoTitle", width: 48 },
-    { header: "video_published_at", key: "videoPublishedAt", width: 24 },
-    { header: "payment_range", key: "paymentRange", width: 18 },
-    { header: "click_range", key: "clickRange", width: 18 },
-    { header: "order_range", key: "orderRange", width: 18 },
-    { header: "video_count_range", key: "videoCountRange", width: 18 }
-  ];
-
-  records.forEach((record) => {
-    sheet.addRow(record);
-  });
-
-  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-  res.setHeader("Content-Disposition", 'attachment; filename="dy-monitor-export.xlsx"');
-  await workbook.xlsx.write(res);
-  res.end();
+router.post("/capture/timing", requireExtensionToken, (req, res) => {
+  const batch = saveCaptureTiming(req.body?.batchId, req.body?.timing);
+  if (!batch) {
+    return res.status(404).json({ message: "Batch not found" });
+  }
+  return res.json(batch);
 });
 
 export default router;

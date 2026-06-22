@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { requireAuth } from "../middleware/auth.js";
-import { readStore } from "../data/store.js";
+import { readCategories } from "../data/store.js";
 import { login } from "../services/auth-service.js";
 
 const router = Router();
@@ -28,8 +28,7 @@ router.post("/login", (req, res) => {
 });
 
 router.get("/me", requireAuth, (req, res) => {
-  const store = readStore();
-  const categories = store.categories.filter((entry) => entry.ownerUserIds.includes(req.user.id));
+  const categories = readCategories().filter((entry) => entry.ownerUserIds.includes(req.user.id));
 
   return res.json({
     id: req.user.id,

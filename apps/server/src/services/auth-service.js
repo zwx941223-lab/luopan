@@ -1,9 +1,8 @@
-import { readStore } from "../data/store.js";
+import { readCategories, readUserByUsername } from "../data/store.js";
 import { signUserToken, verifyPassword } from "../utils/auth.js";
 
 export function login({ username, password }) {
-  const store = readStore();
-  const user = store.users.find((entry) => entry.username === username);
+  const user = readUserByUsername(username);
 
   if (!user || !verifyPassword(password, user.passwordHash)) {
     return null;
@@ -11,7 +10,7 @@ export function login({ username, password }) {
 
   return {
     token: signUserToken(user),
-    user: sanitizeUser(user, store.categories)
+    user: sanitizeUser(user, readCategories())
   };
 }
 

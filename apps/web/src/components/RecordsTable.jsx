@@ -14,6 +14,10 @@ function formatVideoTime(value) {
   return parsed.isValid() ? parsed.format("YYYY-MM-DD HH:mm:ss") : String(value);
 }
 
+function formatCaptureTime(value) {
+  return formatVideoTime(value);
+}
+
 function isObjectPlaceholderText(value) {
   return String(value || "").replace(/\s+/g, "").toLowerCase() === "[objectobject]";
 }
@@ -178,9 +182,6 @@ function renderDiffItems(row) {
     return item?.kind !== "videoCount" && !/视频数|video\s*count/i.test(text);
   });
   const displayItems = items.map(normalizeDiffItem).filter(Boolean);
-  if (!displayItems.length && row.isNewcomer) {
-    return <span className="diff-badge newcomer">本次新增</span>;
-  }
   if (!displayItems.length) {
     return <span className="muted-inline">-</span>;
   }
@@ -202,18 +203,27 @@ function renderDiffItems(row) {
 }
 
 function renderStatusTags(row) {
-  const tags = (Array.isArray(row.statusTags) ? row.statusTags : []).filter((tag) => tag !== "排名变化");
+  const tags = (Array.isArray(row.statusTags) ? row.statusTags : [])
+    .filter((tag) => tag !== "排名变化" && tag !== "今日新增");
+  const showTodayNewTime = row.isTodayFirstListed && row.todayFirstListedAt;
   if (!tags.length) {
-    return <span className="muted-inline">-</span>;
+    return showTodayNewTime ? (
+      <span className="today-new-time">采集时间：{formatCaptureTime(row.todayFirstListedAt)}</span>
+    ) : (
+      <span className="muted-inline">-</span>
+    );
   }
 
   return (
     <div className="status-tag-list">
       {tags.map((tag) => (
-        <span key={tag} className="status-tag">
+        <span key={tag} className={`status-tag${tag === "掉出榜单" ? " dropped-tag" : ""}`}>
           {tag}
         </span>
       ))}
+      {showTodayNewTime ? (
+        <span className="today-new-time">采集时间：{formatCaptureTime(row.todayFirstListedAt)}</span>
+      ) : null}
     </div>
   );
 }

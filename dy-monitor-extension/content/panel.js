@@ -84,6 +84,7 @@
   let timerId = null;
   let running = false;
   let pendingTimerRound = false;
+  let autoStarted = false;
 
   function setStatus(message) {
     status.textContent = message;
@@ -153,35 +154,65 @@
     stopButton.style.display = busy ? "block" : "none";
   }
 
-  function upload(records, meta) {
+  function sendBackgroundMessage(message, retries = 2) {
     return new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage(
-        {
-          type: "upload-capture",
-          apiBaseUrl: runtime.config.apiBaseUrl,
-          extensionToken: runtime.config.extensionToken,
-          payload: { ...meta, records }
-        },
-        (response) => {
-          if (chrome.runtime.lastError) {
-            reject(new Error(chrome.runtime.lastError.message));
-            return;
-          }
-          if (!response?.ok) {
-            reject(new Error(response?.message || t.uploadFailed));
-            return;
-          }
-          resolve(response.data);
+      chrome.runtime.sendMessage(message, (response) => {
+        const lastError = chrome.runtime.lastError;
+        if (lastError) {
+          reject(new Error(lastError.message));
+          return;
         }
-      );
+        resolve(response);
+      });
+    }).catch(async (error) => {
+      if (retries <= 0) throw error;
+      await sleep(800);
+      return sendBackgroundMessage(message, retries - 1);
     });
   }
 
-  async function collectOne(category, index, total) {
+  async function upload(records, meta) {
+    const response = await sendBackgroundMessage({
+      type: "upload-capture",
+      apiBaseUrl: runtime.config.apiBaseUrl,
+      extensionToken: runtime.config.extensionToken,
+      payload: { ...meta, records }
+    });
+    if (!response?.ok) throw new Error(response?.message || t.uploadFailed);
+    return {
+      batch: response.data,
+      serverUploadMs: Number(response.uploadMs || 0)
+    };
+  }
+
+  function updateAutoState(payload) {
+    return sendBackgroundMessage({
+      type: "auto-capture-state",
+      apiBaseUrl: runtime.config.apiBaseUrl,
+      extensionToken: runtime.config.extensionToken,
+      payload
+    }).catch((error) => ({ ok: false, message: error.message }));
+  }
+
+  function updateCaptureTiming(batchId, timing) {
+    if (!batchId || !timing) return Promise.resolve(null);
+    return sendBackgroundMessage({
+      type: "capture-timing",
+      apiBaseUrl: runtime.config.apiBaseUrl,
+      extensionToken: runtime.config.extensionToken,
+      payload: { batchId, timing }
+    }).catch((error) => ({ ok: false, message: error.message }));
+  }
+
+  async function collectOne(category, index, total, context = {}) {
+    const totalStartedAt = performance.now();
+    const switchStartedAt = performance.now();
     setStatus(`(${index}/${total}) \u5207\u6362\u7c7b\u76ee\uff1a${category.categoryName}`);
     const switched = await runtime.silentCapture.switchToCategory(category);
     if (!switched?.ok) throw new Error(switched?.message || t.switchFailed);
+    const switchMs = Math.round(performance.now() - switchStartedAt);
 
+    const collectStartedAt = performance.now();
     setStatus(`(${index}/${total}) \u5f00\u59cb\u91c7\u96c6\uff1a${category.categoryName}`);
     const result = await runtime.silentCapture.collectSilently({
       categoryId: category.categoryId,
@@ -189,10 +220,25 @@
       pageLimit: runtime.config.pageLimit || 10
     });
     if (!result.records.length) throw new Error(t.noData);
+    const collectMs = Math.round(performance.now() - collectStartedAt);
     const domFallbackPages = (result.debug || []).filter((item) => item.api === "dom-fallback").length;
 
+    const uploadStartedAt = performance.now();
     setStatus(`(${index}/${total}) \u4e0a\u4f20 ${result.records.length} \u6761\uff1a${category.categoryName}`);
-    await upload(result.records, {
+    const timing = {
+      roundId: context.roundId || "",
+      categoryIndex: index,
+      categoryTotal: total,
+      categoryId: category.categoryId,
+      categoryName: category.categoryName,
+      switchMs,
+      collectMs,
+      uploadMs: 0,
+      totalMs: 0,
+      recordCount: result.records.length,
+      capturedAt: new Date().toISOString()
+    };
+    const uploadResult = await upload(result.records, {
       categoryId: category.categoryId,
       categoryName: category.categoryName,
       rankingType: runtime.config.rankingType || "\u77ed\u89c6\u9891\u699c",
@@ -203,9 +249,17 @@
       captureFallbackMode: domFallbackPages ? "dom" : "api",
       domFallbackPages,
       capturedAt: new Date().toISOString(),
-      latestApiCapturedAt: Date.now()
+      latestApiCapturedAt: Date.now(),
+      roundId: context.roundId || "",
+      categoryIndex: index,
+      categoryTotal: total,
+      timing
     });
-    return result.records.length;
+    timing.uploadMs = Math.round(performance.now() - uploadStartedAt);
+    timing.serverUploadMs = uploadResult.serverUploadMs || 0;
+    timing.totalMs = Math.round(performance.now() - totalStartedAt);
+    await updateCaptureTiming(uploadResult.batch?.id, timing);
+    return { count: result.records.length, timing };
   }
 
   async function runBatch(rows, source = "manual") {
@@ -223,22 +277,61 @@
     let success = 0;
     let failed = 0;
     const failedRows = [];
+    const roundId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const sourceLabel = source === "timer" ? "\u5b9a\u65f6" : source === "auto" ? "自动" : "\u624b\u52a8";
+    if (source === "auto" || source === "timer") {
+      await updateAutoState({ action: "start", roundId, categoryTotal: rows.length });
+    }
     try {
       for (let i = 0; i < rows.length; i += 1) {
         if (stopRequested) break;
         try {
-          const count = await collectOne(rows[i], i + 1, rows.length);
+          const result = await collectOne(rows[i], i + 1, rows.length, { roundId });
+          const count = result.count;
           success += 1;
-          setStatus(`${source === "timer" ? "\u5b9a\u65f6" : "\u624b\u52a8"}\u5b8c\u6210 ${rows[i].categoryName}\uff1a${count} \u6761\n\u6210\u529f ${success}\uff0c\u5931\u8d25 ${failed}`);
+          if (source === "auto" || source === "timer") {
+            await updateAutoState({
+              action: "heartbeat",
+              roundId,
+              categoryTotal: rows.length,
+              categoryDone: i + 1,
+              successCount: success,
+              failedCount: failed,
+              currentCategoryName: rows[i].categoryName,
+              timing: result.timing
+            });
+          }
+          setStatus(`${sourceLabel}\u5b8c\u6210 ${rows[i].categoryName}\uff1a${count} \u6761\n\u6210\u529f ${success}\uff0c\u5931\u8d25 ${failed}`);
         } catch (error) {
           failed += 1;
           failedRows.push(`${rows[i].categoryName}: ${error.message}`);
+          if (source === "auto" || source === "timer") {
+            await updateAutoState({
+              action: "heartbeat",
+              roundId,
+              categoryTotal: rows.length,
+              categoryDone: i + 1,
+              successCount: success,
+              failedCount: failed,
+              currentCategoryName: rows[i].categoryName
+            });
+          }
           setStatus(`\u5931\u8d25 ${rows[i].categoryName}: ${error.message}\n\u6210\u529f ${success}\uff0c\u5931\u8d25 ${failed}`);
         }
         setProgress(i + 1, rows.length);
         await sleep(600);
       }
       setStatus(`\u4efb\u52a1\u7ed3\u675f\u3002\u6210\u529f ${success}\uff0c\u5931\u8d25 ${failed}${failedRows.length ? `\n${failedRows.join("\n")}` : ""}`);
+      if (source === "auto" || source === "timer") {
+        await updateAutoState({
+          action: "complete",
+          roundId,
+          categoryTotal: rows.length,
+          categoryDone: success + failed,
+          successCount: success,
+          failedCount: failed
+        });
+      }
     } finally {
       setBusy(false);
       if (source === "timer" && timerId && pendingTimerRound && !stopRequested) {
@@ -287,4 +380,12 @@
   });
 
   renderCategories();
+  if (runtime.config.autoCaptureOnOpen) {
+    window.setTimeout(() => {
+      if (autoStarted || running) return;
+      autoStarted = true;
+      setStatus("服务器自动采集模式：页面已打开，准备执行全类目采集。");
+      runBatch(allCategories(), "auto");
+    }, Number(runtime.config.autoCaptureDelayMs || 8000));
+  }
 })();

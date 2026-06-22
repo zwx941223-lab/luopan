@@ -6,7 +6,9 @@ import {
   readCaptureBatches,
   readCategories,
   readCategoryStats,
+  readAutoCaptureState,
   readLatestCaptureHours,
+  readCaptureBatchesPage,
   readOverviewStats,
   readRecentRecordsByCategory,
   readRecordsByBatchIds,
@@ -15,10 +17,12 @@ import {
   readRecordsByRankingHour,
   readStore,
   readUserIds,
-  updateStore
+  updateCaptureBatchTiming,
+  updateStore,
+  writeAutoCaptureState
 } from "../data/store.js";
 import { config } from "../config.js";
-import { getNowIso, isAfter, subtractHours, toHourKey } from "../utils/time.js";
+import { getNowIso, isAfter, toHourKey } from "../utils/time.js";
 import {
   STANDARD_CATEGORIES,
   findStandardCategoryById,
@@ -26,6 +30,8 @@ import {
 } from "../constants/standard-categories.js";
 
 const SHORT_VIDEO_RANKING = "\u77ed\u89c6\u9891\u699c";
+const todayFirstListedCache = new Map();
+const serviceStartedAt = getNowIso();
 
 function isObjectPlaceholderText(value) {
   return String(value || "").replace(/\s+/g, "").toLowerCase() === "[objectobject]";
@@ -127,7 +133,8 @@ function normalizeCategoryNameToStandard(categoryId, categoryName) {
 }
 
 function isShortVideoRanking(value) {
-  return normalizeRankingType(value) === SHORT_VIDEO_RANKING;
+  const normalized = normalizeRankingType(value);
+  return normalized === SHORT_VIDEO_RANKING || normalized === "短视频榜";
 }
 
 function isHeaderLikeRecord(record) {
@@ -155,6 +162,19 @@ function makeRecordKey(record) {
   return [
     makeCategoryId(record.categoryId, record.categoryName),
     identity,
+    String(record.rankingType || "short-video").trim()
+  ].join("::");
+}
+
+function makeTodayFirstListedKey(record) {
+  const productId = String(record.productId || "").trim();
+  if (!productId) {
+    return makeRecordKey(record);
+  }
+
+  return [
+    makeCategoryId(record.categoryId, record.categoryName),
+    productId,
     String(record.rankingType || "short-video").trim()
   ].join("::");
 }
@@ -387,8 +407,7 @@ function isTrustedBatchWithRecords(batch, records) {
   );
 }
 
-function getTodayTrustedBatchEntries(categoryId, limit = 300) {
-  const todayStartIso = getChinaTodayStartIso();
+function getTodayTrustedBatchEntries(categoryId, limit = 300, todayStartIso = getChinaTodayStartIso()) {
   const candidates = readBatchesByCategory(categoryId, limit)
     .filter(isTrustedBatch)
     .filter((batch) => isAtOrAfterIso(batch.capturedAt, todayStartIso))
@@ -409,15 +428,41 @@ function getTodayTrustedBatchEntries(categoryId, limit = 300) {
   return entries;
 }
 
+function getTodayFirstListedCacheKey(categoryId, todayStartIso) {
+  const latestBatch = readBatchesByCategory(categoryId, 1)[0];
+  return [
+    String(categoryId || ""),
+    todayStartIso,
+    latestBatch?.id || "",
+    latestBatch?.recordCount || 0
+  ].join("::");
+}
+
+function invalidateTodayFirstListedCache(categoryId) {
+  const prefix = `${String(categoryId || "")}::`;
+  for (const key of todayFirstListedCache.keys()) {
+    if (!categoryId || key.startsWith(prefix)) {
+      todayFirstListedCache.delete(key);
+    }
+  }
+}
+
 function getTodayFirstListedSummary(categoryId) {
-  const entries = getTodayTrustedBatchEntries(categoryId);
+  const todayStartIso = getChinaTodayStartIso();
+  const cacheKey = getTodayFirstListedCacheKey(categoryId, todayStartIso);
+  const cached = todayFirstListedCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const entries = getTodayTrustedBatchEntries(categoryId, 300, todayStartIso);
   const baselineEntry = entries[0] || null;
-  const baselineKeys = new Set((baselineEntry?.records || []).map((record) => makeRecordKey(record)));
+  const baselineKeys = new Set((baselineEntry?.records || []).map((record) => makeTodayFirstListedKey(record)));
   const firstByKey = new Map();
 
   for (const entry of entries.slice(1)) {
     for (const record of entry.records) {
-      const key = makeRecordKey(record);
+      const key = makeTodayFirstListedKey(record);
       if (!key || baselineKeys.has(key) || firstByKey.has(key)) {
         continue;
       }
@@ -428,13 +473,76 @@ function getTodayFirstListedSummary(categoryId) {
     }
   }
 
-  return {
+  const summary = {
     baselineBatch: baselineEntry?.batch || null,
     latestBatch: entries.at(-1)?.batch || null,
     batchCount: entries.length,
     firstByKey,
     keySet: new Set(firstByKey.keys())
   };
+
+  todayFirstListedCache.set(cacheKey, summary);
+  return summary;
+}
+
+function getTodayFirstListedRows(user, categoryId) {
+  if (!categoryId) {
+    return [];
+  }
+  const allowedCategoryIds = new Set(getCategoriesForUser(user).map((entry) => entry.id));
+  if (!allowedCategoryIds.has(String(categoryId))) {
+    return [];
+  }
+
+  const summary = getTodayFirstListedSummary(categoryId);
+  const latestBatch = summary.latestBatch || null;
+  if (!latestBatch) {
+    return [];
+  }
+
+  const todayRecords = readRecentRecordsByCategory(categoryId, 6000)
+    .filter((record) => isShortVideoRanking(record.rankingType))
+    .filter((record) => record.productName || record.videoTitle)
+    .filter((record) => !isHeaderLikeRecord(record));
+  const backfillIndex = buildRecordBackfillIndex(todayRecords);
+  const latestBatches = [
+    latestBatch,
+    summary.baselineBatch
+  ].filter(Boolean);
+
+  const recordsByKey = new Map();
+  for (const record of [...todayRecords].sort((left, right) => String(right.capturedAt || "").localeCompare(String(left.capturedAt || "")))) {
+    const key = makeTodayFirstListedKey(record);
+    if (!key || !summary.keySet.has(key)) {
+      continue;
+    }
+
+    const records = recordsByKey.get(key) || [];
+    records.push(record);
+    recordsByKey.set(key, records);
+  }
+
+  return [...summary.firstByKey.entries()]
+    .map(([key, firstEntry]) => {
+      const records = recordsByKey.get(key) || [];
+      const latestRecord = records[0] || firstEntry.record;
+      const previousRecord = records.find((record) => record.batchId !== latestRecord.batchId) || null;
+
+      return buildRankingRawRow(backfillRecordForDisplay(latestRecord, backfillIndex), previousRecord ? backfillRecordForDisplay(previousRecord, backfillIndex) : null, latestBatches, {
+        isTodayFirstListed: true,
+        isDroppedFromLatestBatch: latestRecord.batchId !== latestBatch.id,
+        firstListedAt: firstEntry?.batch?.capturedAt || firstEntry?.record?.capturedAt || "",
+        baselineBatchAt: summary.baselineBatch?.capturedAt || ""
+      });
+    })
+    .sort((left, right) => {
+      const rightTime = new Date(right.todayFirstListedAt || "").getTime();
+      const leftTime = new Date(left.todayFirstListedAt || "").getTime();
+      const safeRightTime = Number.isFinite(rightTime) ? rightTime : 0;
+      const safeLeftTime = Number.isFinite(leftTime) ? leftTime : 0;
+      const timeDiff = safeRightTime - safeLeftTime;
+      return timeDiff || Number(left.rank || 0) - Number(right.rank || 0);
+    });
 }
 
 function trimHistory(store) {
@@ -521,7 +629,11 @@ export function saveCapture(payload) {
     latestApiCapturedAt: Number(payload.latestApiCapturedAt || 0),
     pageLimit: Number(payload.pageLimit || 10),
     recordCount: Array.isArray(payload.records) ? payload.records.length : 0,
-    triggerMode: payload.triggerMode || "manual"
+    triggerMode: payload.triggerMode || "manual",
+    roundId: payload.roundId || "",
+    categoryIndex: Number(payload.categoryIndex || 0),
+    categoryTotal: Number(payload.categoryTotal || 0),
+    timing: payload.timing && typeof payload.timing === "object" ? payload.timing : null
   };
 
   const normalized = (payload.records || []).map((entry) => sanitizeRecord(entry, batch));
@@ -540,7 +652,7 @@ export function saveCapture(payload) {
       category,
       batch,
       records: normalized,
-      cutoff: subtractHours(getNowIso(), config.historyRetentionHours)
+      cutoff: getChinaNaturalDayRetentionCutoffIso(new Date(), config.historyRetentionDays)
     });
   } else {
     updateStore((store) => {
@@ -552,7 +664,12 @@ export function saveCapture(payload) {
     });
   }
 
+  invalidateTodayFirstListedCache(batch.categoryId);
   return batch;
+}
+
+export function saveCaptureTiming(batchId, timing) {
+  return updateCaptureBatchTiming(batchId, timing);
 }
 
 export function getCategoriesForUser(user) {
@@ -1012,6 +1129,9 @@ function buildRankingRawRow(record, previous, latestBatches, todayFirstListed = 
   if (isTodayNew) {
     statusTags.push("今日新增");
   }
+  if (todayFirstListed?.isDroppedFromLatestBatch) {
+    statusTags.push("掉出榜单");
+  }
 
   return {
     id: record.id,
@@ -1101,8 +1221,7 @@ export function getRankingRows(user, filters = {}) {
           baselineBatchAt: todayFirstListedSummary.baselineBatch?.capturedAt || ""
         });
       });
-    const qualitySummary = buildQualitySummary(rawRows);
-    return rawRows.map((row) => ({ ...row, qualitySummary }));
+    return rawRows;
   }
 
   const records = getVisibleRecords(user, filters);
@@ -1137,8 +1256,7 @@ export function getRankingRows(user, filters = {}) {
           baselineBatchAt: todayFirstListedSummary?.baselineBatch?.capturedAt || ""
         });
       });
-    const qualitySummary = buildQualitySummary(rawRows);
-    return rawRows.map((row) => ({ ...row, qualitySummary }));
+    return rawRows;
   }
 
   const grouped = new Map();
@@ -1257,18 +1375,19 @@ export function getRankingRows(user, filters = {}) {
     })
     .sort((left, right) => left.rank - right.rank);
 
-  const qualitySummary = buildQualitySummary(rows);
-  return rows.map((row) => ({ ...row, qualitySummary }));
+  return rows;
 }
 
 export function getRankingRowsPage(user, filters = {}) {
-  const rows = getRankingRows(user, filters);
   const viewMode = String(filters.viewMode || "all");
-  const filteredRows = viewMode === "firstListed" || viewMode === "todayNew"
-    ? rows.filter((row) => row.isTodayFirstListed)
-    : viewMode === "changed"
-      ? rows.filter(hasVisibleDiffItems)
-      : rows;
+  if (viewMode === "firstListed" || viewMode === "todayNew") {
+    return paginateItems(getTodayFirstListedRows(user, filters.categoryId), filters);
+  }
+
+  const rows = getRankingRows(user, filters);
+  const filteredRows = viewMode === "changed"
+    ? rows.filter(hasVisibleDiffItems)
+    : rows;
 
   return paginateItems(filteredRows, filters);
 }
@@ -1504,11 +1623,141 @@ export function getCaptureHistory(user, options = {}) {
 }
 
 export function getCaptureHistoryPage(user, options = {}) {
-  const limit = Math.min(Math.max(Number(options.limit || 1000), 50), 2000);
-  const rows = getCaptureHistory(user, { limit });
-  return paginateItems(rows, options);
+  const allowedCategoryIds = getCategoriesForUser(user).map((entry) => entry.id);
+  const page = toPositiveInt(options.page, 1, 1, 100000);
+  const pageSize = toPositiveInt(options.pageSize, 50, 1, 200);
+  const result = readCaptureBatchesPage({ page, pageSize, allowedCategoryIds });
+  const trustedItems = result.items.filter(isTrustedBatch);
+
+  return {
+    ...result,
+    items: trustedItems
+  };
 }
 
 export function getDiagnostics() {
-  return readDiagnostics();
+  return {
+    ...readDiagnostics(),
+    autoCapture: getAutoCaptureState()
+  };
+}
+
+export function getAutoCaptureState() {
+  const state = readAutoCaptureState();
+  const now = Date.now();
+  const lastCompletedAtMs = new Date(state.lastCompletedAt || "").getTime();
+  const serviceStartedAtMs = new Date(serviceStartedAt).getTime();
+  const hasCompletedAfterServiceStart =
+    Number.isFinite(lastCompletedAtMs) &&
+    Number.isFinite(serviceStartedAtMs) &&
+    lastCompletedAtMs >= serviceStartedAtMs;
+  const dueAtMs = hasCompletedAfterServiceStart
+    ? lastCompletedAtMs + config.autoCaptureIntervalMinutes * 60 * 1000
+    : 0;
+
+  return {
+    ...state,
+    intervalMinutes: config.autoCaptureIntervalMinutes,
+    captureUrl: config.compassCaptureUrl,
+    now: getNowIso(),
+    serviceStartedAt,
+    firstRunPending: !hasCompletedAfterServiceStart,
+    dueAt: dueAtMs ? new Date(dueAtMs).toISOString() : "",
+    shouldOpenBrowser:
+      state.enabled !== false &&
+      state.status !== "running" &&
+      (!dueAtMs || now >= dueAtMs)
+  };
+}
+
+export function updateAutoCaptureState(action, payload = {}) {
+  const now = getNowIso();
+  const previous = readAutoCaptureState();
+  const recentTimings = Array.isArray(previous.recentTimings) ? previous.recentTimings : [];
+
+  if (action === "start") {
+    return writeAutoCaptureState({
+      enabled: payload.enabled ?? previous.enabled ?? true,
+      status: "running",
+      activeRoundId: payload.roundId || previous.activeRoundId || nanoid(),
+      lastStartedAt: now,
+      lastHeartbeatAt: now,
+      lastError: "",
+      categoryTotal: Number(payload.categoryTotal || 0),
+      categoryDone: 0,
+      successCount: 0,
+      failedCount: 0,
+      currentCategoryName: "",
+      recentTimings: []
+    });
+  }
+
+  if (action === "heartbeat") {
+    const timing = payload.timing && typeof payload.timing === "object" ? payload.timing : null;
+    return writeAutoCaptureState({
+      status: "running",
+      activeRoundId: payload.roundId || previous.activeRoundId,
+      lastHeartbeatAt: now,
+      categoryTotal: Number(payload.categoryTotal || previous.categoryTotal || 0),
+      categoryDone: Number(payload.categoryDone || previous.categoryDone || 0),
+      successCount: Number(payload.successCount || previous.successCount || 0),
+      failedCount: Number(payload.failedCount || previous.failedCount || 0),
+      currentCategoryName: payload.currentCategoryName || previous.currentCategoryName || "",
+      recentTimings: timing ? [...recentTimings, timing].slice(-80) : recentTimings
+    });
+  }
+
+  if (action === "complete") {
+    const categoryTotal = Number(payload.categoryTotal || previous.categoryTotal || 0);
+    const categoryDone = Number(payload.categoryDone || previous.categoryDone || 0);
+    const successCount = Number(payload.successCount || previous.successCount || 0);
+    const failedCount = Number(payload.failedCount || previous.failedCount || 0);
+
+    if (categoryTotal > 0 && categoryDone < categoryTotal) {
+      return writeAutoCaptureState({
+        status: "running",
+        activeRoundId: payload.roundId || previous.activeRoundId,
+        lastHeartbeatAt: now,
+        lastError: `auto capture complete ignored: ${categoryDone}/${categoryTotal}`,
+        currentCategoryName: payload.currentCategoryName || previous.currentCategoryName || "",
+        categoryTotal,
+        categoryDone,
+        successCount,
+        failedCount
+      });
+    }
+
+    return writeAutoCaptureState({
+      status: "completed",
+      activeRoundId: payload.roundId || previous.activeRoundId,
+      lastCompletedAt: now,
+      lastHeartbeatAt: now,
+      currentCategoryName: "",
+      lastError: "",
+      categoryTotal,
+      categoryDone,
+      successCount,
+      failedCount
+    });
+  }
+
+  if (action === "error") {
+    return writeAutoCaptureState({
+      status: "error",
+      activeRoundId: payload.roundId || previous.activeRoundId,
+      lastHeartbeatAt: now,
+      lastError: payload.message || payload.error || "auto capture failed",
+      currentCategoryName: payload.currentCategoryName || previous.currentCategoryName || ""
+    });
+  }
+
+  if (action === "idle") {
+    return writeAutoCaptureState({
+      status: "idle",
+      activeRoundId: "",
+      currentCategoryName: ""
+    });
+  }
+
+  return writeAutoCaptureState(payload);
 }

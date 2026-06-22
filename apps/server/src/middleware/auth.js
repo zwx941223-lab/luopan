@@ -1,4 +1,4 @@
-import { readStore } from "../data/store.js";
+import { readUserById } from "../data/store.js";
 import { verifyToken } from "../utils/auth.js";
 import { config } from "../config.js";
 
@@ -16,8 +16,7 @@ export function requireAuth(req, res, next) {
     }
 
     const payload = verifyToken(token);
-    const store = readStore();
-    const user = store.users.find((entry) => entry.id === payload.sub);
+    const user = readUserById(payload.sub);
 
     if (!user) {
       return res.status(401).json({ message: "账号不存在" });

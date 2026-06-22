@@ -1,8 +1,10 @@
 window.DY_MONITOR_CONFIG = {
-  version: "plugin-v4.0.9",
+  version: "plugin-v4.1.7",
   apiBaseUrl: "http://localhost:4318/api",
   extensionToken: "dy-monitor-extension-token",
   appUrl: "http://localhost:4318",
   pageLimit: 10,
-  rankingType: "\u77ed\u89c6\u9891\u699c"
+  rankingType: "\u77ed\u89c6\u9891\u699c",
+  autoCaptureOnOpen: true,
+  autoCaptureDelayMs: 8000
 };
