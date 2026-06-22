@@ -5,6 +5,7 @@ $LogDir = Join-Path $Root "logs"
 $LogFile = Join-Path $LogDir "guardian.log"
 $LastOpenFile = Join-Path $LogDir "guardian-last-open.txt"
 $OpenCooldownMinutes = 80
+$CloseEdgeOnComplete = $env:DY_MONITOR_CLOSE_EDGE_ON_COMPLETE
 $ServerUrl = $env:DY_MONITOR_SERVER_URL
 $CompassUrl = $env:DY_MONITOR_COMPASS_URL
 $ApiBaseUrl = $env:DY_MONITOR_API_BASE_URL
@@ -24,6 +25,10 @@ if (-not $ApiBaseUrl) {
 
 if (-not $ExtensionToken) {
   $ExtensionToken = "dy-monitor-extension-token"
+}
+
+if (-not $CloseEdgeOnComplete) {
+  $CloseEdgeOnComplete = "1"
 }
 
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
@@ -78,6 +83,23 @@ function Open-Compass {
   Set-Content -LiteralPath $LastOpenFile -Value $now
 }
 
+function Stop-EdgeForCleanRestart {
+  if ($CloseEdgeOnComplete -eq "0" -or $CloseEdgeOnComplete -eq "false") {
+    Write-GuardianLog "edge restart skipped: DY_MONITOR_CLOSE_EDGE_ON_COMPLETE=$CloseEdgeOnComplete"
+    return
+  }
+
+  $processes = Get-Process msedge -ErrorAction SilentlyContinue
+  if (-not $processes) {
+    Write-GuardianLog "edge restart skipped: msedge not running"
+    return
+  }
+
+  Write-GuardianLog "capture completed, stopping edge before cache cleanup"
+  $processes | Stop-Process -Force -ErrorAction SilentlyContinue
+  Start-Sleep -Seconds 2
+}
+
 function Clear-EdgeRuntimeCache {
   $edgeUserData = Join-Path $env:LOCALAPPDATA "Microsoft\Edge\User Data"
   if (-not (Test-Path -LiteralPath $edgeUserData)) {
@@ -125,53 +147,40 @@ function Get-AutoCaptureState {
   }
 }
 
-function Test-CaptureLooksActive {
+function Test-CaptureHasRecentHeartbeat {
   param($State)
   if (-not $State) {
     return $false
   }
 
-  $done = 0
-  $total = 0
-  if ($null -ne $State.categoryDone) {
-    $done = [int]$State.categoryDone
-  }
-  if ($null -ne $State.categoryTotal) {
-    $total = [int]$State.categoryTotal
-  }
-  if ($total -le 0 -or $done -ge $total) {
-    return $false
-  }
-
-  $lastStartedAt = [DateTimeOffset]::MinValue
   $lastHeartbeatAt = [DateTimeOffset]::MinValue
-  [DateTimeOffset]::TryParse([string]$State.lastStartedAt, [ref]$lastStartedAt) | Out-Null
   [DateTimeOffset]::TryParse([string]$State.lastHeartbeatAt, [ref]$lastHeartbeatAt) | Out-Null
 
   $now = [DateTimeOffset]::UtcNow
-  $startedRecently = $lastStartedAt -gt [DateTimeOffset]::MinValue -and ($now - $lastStartedAt).TotalHours -lt 3
-  $heartbeatRecently = $lastHeartbeatAt -gt [DateTimeOffset]::MinValue -and ($now - $lastHeartbeatAt).TotalHours -lt 2
-
-  return $startedRecently -or $heartbeatRecently
+  return $lastHeartbeatAt -gt [DateTimeOffset]::MinValue -and ($now - $lastHeartbeatAt).TotalMinutes -lt 10
 }
 
-function Stop-EdgeIfCaptureCompleted {
+function Reset-AutoCaptureToIdle {
+  try {
+    Invoke-RestMethod -Uri "$ApiBaseUrl/monitor/capture/auto-state" -Method Post -Headers @{
+      "x-extension-token" = $ExtensionToken
+    } -ContentType "application/json" -Body '{"action":"idle"}' -TimeoutSec 8 | Out-Null
+    Write-GuardianLog "auto status reset to idle"
+  } catch {
+    Write-GuardianLog "auto idle reset failed: $($_.Exception.Message)"
+  }
+}
+
+function Complete-CaptureCleanup {
   param($State)
   if (-not $State) {
     return
   }
 
   if ($State.status -eq "completed") {
-    Write-GuardianLog "capture completed, edge kept open"
+    Stop-EdgeForCleanRestart
     Clear-EdgeRuntimeCache
-    try {
-      Invoke-RestMethod -Uri "$ApiBaseUrl/monitor/capture/auto-state" -Method Post -Headers @{
-        "x-extension-token" = $ExtensionToken
-      } -ContentType "application/json" -Body '{"action":"idle"}' -TimeoutSec 8 | Out-Null
-      Write-GuardianLog "auto status reset to idle"
-    } catch {
-      Write-GuardianLog "auto idle reset failed: $($_.Exception.Message)"
-    }
+    Reset-AutoCaptureToIdle
   }
 }
 
@@ -193,13 +202,22 @@ $autoState = Get-AutoCaptureState
 if ($autoState) {
   Write-GuardianLog "auto status=$($autoState.status), firstRunPending=$($autoState.firstRunPending), shouldOpen=$($autoState.shouldOpenBrowser), dueAt=$($autoState.dueAt), done=$($autoState.categoryDone)/$($autoState.categoryTotal)"
   if ($autoState.status -eq "running") {
-    Write-GuardianLog "capture already running, skip opening compass"
-  } elseif (Test-CaptureLooksActive $autoState) {
-    Write-GuardianLog "capture progress incomplete and still recent, skip opening compass"
+    if (Test-CaptureHasRecentHeartbeat $autoState) {
+      Write-GuardianLog "capture running with recent heartbeat, skip opening compass"
+    } else {
+      Write-GuardianLog "capture running but heartbeat stale, restart capture page"
+      Stop-EdgeForCleanRestart
+      Clear-EdgeRuntimeCache
+      Reset-AutoCaptureToIdle
+      Remove-Item -LiteralPath $LastOpenFile -Force -ErrorAction SilentlyContinue
+      Open-Compass
+    }
+  } elseif ($autoState.status -eq "completed") {
+    Complete-CaptureCleanup $autoState
   } elseif ($autoState.shouldOpenBrowser) {
     Open-Compass
   } else {
-    Stop-EdgeIfCaptureCompleted $autoState
+    Write-GuardianLog "not due yet, skip opening compass"
   }
 } else {
   Open-Compass
