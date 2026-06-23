@@ -64,6 +64,8 @@ function Start-Backend {
 }
 
 function Open-Compass {
+  param([switch]$Force)
+
   $lastOpenAt = 0
   if (Test-Path -LiteralPath $LastOpenFile) {
     $raw = Get-Content -LiteralPath $LastOpenFile -Raw -ErrorAction SilentlyContinue
@@ -72,7 +74,7 @@ function Open-Compass {
 
   $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
   $cooldownSeconds = $OpenCooldownMinutes * 60
-  if ($lastOpenAt -gt 0 -and ($now - $lastOpenAt) -lt $cooldownSeconds) {
+  if (-not $Force -and $lastOpenAt -gt 0 -and ($now - $lastOpenAt) -lt $cooldownSeconds) {
     $leftSeconds = [Math]::Max(0, $cooldownSeconds - ($now - $lastOpenAt))
     Write-GuardianLog "compass open skipped: cooldown ${leftSeconds}s left"
     return
@@ -95,9 +97,20 @@ function Stop-EdgeForCleanRestart {
     return
   }
 
-  Write-GuardianLog "capture completed, stopping edge before cache cleanup"
+  Write-GuardianLog "stopping edge before cache cleanup"
   $processes | Stop-Process -Force -ErrorAction SilentlyContinue
   Start-Sleep -Seconds 2
+}
+
+function Prepare-CleanCompassOpen {
+  param([string]$Reason)
+
+  Write-GuardianLog "prepare clean compass open: $Reason"
+  Stop-EdgeForCleanRestart
+  Clear-EdgeRuntimeCache
+  Reset-AutoCaptureToIdle
+  Remove-Item -LiteralPath $LastOpenFile -Force -ErrorAction SilentlyContinue
+  Open-Compass -Force
 }
 
 function Clear-EdgeRuntimeCache {
@@ -171,19 +184,6 @@ function Reset-AutoCaptureToIdle {
   }
 }
 
-function Complete-CaptureCleanup {
-  param($State)
-  if (-not $State) {
-    return
-  }
-
-  if ($State.status -eq "completed") {
-    Stop-EdgeForCleanRestart
-    Clear-EdgeRuntimeCache
-    Reset-AutoCaptureToIdle
-  }
-}
-
 Write-GuardianLog "guardian check started"
 
 if (-not (Test-Backend)) {
@@ -206,20 +206,20 @@ if ($autoState) {
       Write-GuardianLog "capture running with recent heartbeat, skip opening compass"
     } else {
       Write-GuardianLog "capture running but heartbeat stale, restart capture page"
-      Stop-EdgeForCleanRestart
-      Clear-EdgeRuntimeCache
-      Reset-AutoCaptureToIdle
-      Remove-Item -LiteralPath $LastOpenFile -Force -ErrorAction SilentlyContinue
-      Open-Compass
+      Prepare-CleanCompassOpen "stale running heartbeat"
     }
-  } elseif ($autoState.status -eq "completed") {
-    Complete-CaptureCleanup $autoState
+  } elseif ($autoState.firstRunPending -eq $true -or [string]$autoState.firstRunPending -eq "True") {
+    Prepare-CleanCompassOpen "first run pending"
+  } elseif ($autoState.status -eq "error") {
+    Prepare-CleanCompassOpen "auto capture error"
   } elseif ($autoState.shouldOpenBrowser) {
-    Open-Compass
+    Prepare-CleanCompassOpen "scheduled capture due"
+  } elseif ($autoState.status -eq "completed") {
+    Write-GuardianLog "capture completed, waiting for next scheduled round"
   } else {
     Write-GuardianLog "not due yet, skip opening compass"
   }
 } else {
-  Open-Compass
+  Prepare-CleanCompassOpen "auto state unavailable"
 }
 Write-GuardianLog "guardian check finished"
