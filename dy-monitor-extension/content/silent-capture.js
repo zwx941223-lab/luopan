@@ -652,21 +652,47 @@
     return found;
   }
 
-  function findRankingArrays(payload) {
+  function isProductRankApiUrl(url) {
+    return /\/shop\/product\/product_rank\//i.test(String(url || ""));
+  }
+
+  function findRankingArrays(payload, sourceUrl = "") {
     const arrays = [];
+    const isProductRankApi = isProductRankApiUrl(sourceUrl);
     objectValuesDeep(payload, (value) => {
       if (!Array.isArray(value) || value.length < 3) return;
       const objects = value.filter((item) => item && typeof item === "object" && !Array.isArray(item));
       if (objects.length < 3) return;
       const sample = objects.slice(0, 5);
       const score = sample.reduce((total, item) => {
-        const productName = getByKeysDeep(item, ["productName", "product_name", "goodsName", "goods_name", "title", "name"]);
+        const productName = getByKeysDeep(item, [
+          "productName",
+          "product_name",
+          "productTitle",
+          "product_title",
+          "goodsName",
+          "goods_name",
+          "itemName",
+          "item_name",
+          "itemTitle",
+          "item_title",
+          "title",
+          "name"
+        ]);
+        const productId = getByKeysDeep(item, ["productId", "product_id", "goodsId", "goods_id", "itemId", "item_id", "id"]);
         const rank = numberByKeysDeep(item, ["rank", "ranking", "rankNo", "rank_no", "seq", "index"]);
         const image = mediaUrl(item, ["image", "img", "cover", "pic"]);
-        const metric = rangeByFragments(item, ["pay", "payment", "gmv", "click", "order", "deal"]);
-        return total + (productName ? 4 : 0) + (rank ? 3 : 0) + (image ? 1 : 0) + (metric ? 1 : 0);
+        const metric = rangeByFragments(item, ["pay", "payment", "gmv", "click", "order", "deal", "amount", "\u652f\u4ed8", "\u70b9\u51fb", "\u6210\u4ea4"]);
+        const videoSignal = getByKeysDeep(item, ["videoId", "video_id", "awemeId", "aweme_id", "videoTitle", "video_title"]);
+        return total +
+          (productName ? 4 : 0) +
+          (productId ? 3 : 0) +
+          (rank ? 3 : isProductRankApi ? 2 : 0) +
+          (image ? 1 : 0) +
+          (metric ? 2 : 0) +
+          (videoSignal ? 1 : 0);
       }, 0);
-      if (score >= 12) arrays.push({ rows: objects, score });
+      if (score >= (isProductRankApi ? 8 : 12)) arrays.push({ rows: objects, score });
     });
     return arrays.sort((a, b) => b.score - a.score || b.rows.length - a.rows.length);
   }
@@ -708,8 +734,21 @@
     const fallbackVideoUrl = mediaUrl(item, ["play", "video", "share"]);
     const fallbackVideoCover = videoCoverUrl(item) || (looksLikeImageUrl(fallbackVideoUrl) ? fallbackVideoUrl : "");
     const productName =
-      getByKeysDeep(item, ["productName", "product_name", "goodsName", "goods_name", "itemName", "item_name", "title", "name"]) ||
-      getByKeyFragmentsDeep(item, ["product_name", "goods_name", "item_name"]);
+      getByKeysDeep(item, [
+        "productName",
+        "product_name",
+        "productTitle",
+        "product_title",
+        "goodsName",
+        "goods_name",
+        "itemName",
+        "item_name",
+        "itemTitle",
+        "item_title",
+        "title",
+        "name"
+      ]) ||
+      getByKeyFragmentsDeep(item, ["product_name", "product_title", "goods_name", "item_name", "item_title"]);
     const rank = normalizeRank(numberByKeysDeep(item, ["rank", "ranking", "rankNo", "rank_no", "rankValue", "rank_value"]), page, index);
     const productImage = mediaUrl(item, ["productimage", "product_image", "goodsimage", "goods_image", "image", "img", "pic"]);
 
@@ -743,7 +782,7 @@
 
   function rowsFromCandidate(candidate, meta, page) {
     const payload = parseJson(candidate?.responseText || "");
-    const best = findRankingArrays(payload)[0];
+    const best = findRankingArrays(payload, candidate?.url || "")[0];
     if (!best) return [];
     return best.rows
       .slice(0, 10)
