@@ -204,6 +204,16 @@
     }).catch((error) => ({ ok: false, message: error.message }));
   }
 
+  function noDataDetails() {
+    const diagnostics = runtime.state.latestCaptureDiagnostics || {};
+    const debug = Array.isArray(diagnostics.debug) ? diagnostics.debug : [];
+    const latest = debug[debug.length - 1] || {};
+    if (latest.apiCandidateCount > 0) {
+      return `解析 0 行，最新接口：${latest.latestApi || latest.api || "-"}`;
+    }
+    return "没有捕获到新的榜单接口，页面将刷新恢复";
+  }
+
   async function collectOne(category, index, total, context = {}) {
     const totalStartedAt = performance.now();
     const switchStartedAt = performance.now();
@@ -219,7 +229,7 @@
       categoryName: category.categoryName,
       pageLimit: runtime.config.pageLimit || 10
     });
-    if (!result.records.length) throw new Error(t.noData);
+    if (!result.records.length) throw new Error(`${t.noData}（${noDataDetails()}）`);
     const collectMs = Math.round(performance.now() - collectStartedAt);
     const domFallbackPages = (result.debug || []).filter((item) => item.api === "dom-fallback").length;
 
@@ -276,6 +286,8 @@
     setProgress(0, rows.length);
     let success = 0;
     let failed = 0;
+    let consecutiveNoDataFailures = 0;
+    let abortedForRecovery = false;
     const failedRows = [];
     const roundId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const sourceLabel = source === "timer" ? "\u5b9a\u65f6" : source === "auto" ? "自动" : "\u624b\u52a8";
@@ -289,6 +301,7 @@
           const result = await collectOne(rows[i], i + 1, rows.length, { roundId });
           const count = result.count;
           success += 1;
+          consecutiveNoDataFailures = 0;
           if (source === "auto" || source === "timer") {
             await updateAutoState({
               action: "heartbeat",
@@ -304,6 +317,8 @@
           setStatus(`${sourceLabel}\u5b8c\u6210 ${rows[i].categoryName}\uff1a${count} \u6761\n\u6210\u529f ${success}\uff0c\u5931\u8d25 ${failed}`);
         } catch (error) {
           failed += 1;
+          const isNoData = String(error.message || "").includes(t.noData);
+          consecutiveNoDataFailures = isNoData ? consecutiveNoDataFailures + 1 : 0;
           failedRows.push(`${rows[i].categoryName}: ${error.message}`);
           if (source === "auto" || source === "timer") {
             await updateAutoState({
@@ -317,12 +332,30 @@
             });
           }
           setStatus(`\u5931\u8d25 ${rows[i].categoryName}: ${error.message}\n\u6210\u529f ${success}\uff0c\u5931\u8d25 ${failed}`);
+          if ((source === "auto" || source === "timer") && success === 0 && consecutiveNoDataFailures >= 3) {
+            abortedForRecovery = true;
+            await updateAutoState({
+              action: "error",
+              roundId,
+              categoryTotal: rows.length,
+              categoryDone: i + 1,
+              successCount: success,
+              failedCount: failed,
+              currentCategoryName: rows[i].categoryName,
+              message: "连续 3 个类目没有读取到榜单数据，刷新罗盘页面恢复"
+            });
+            setStatus(`连续 ${consecutiveNoDataFailures} 个类目没有读取到榜单数据，正在刷新罗盘页面恢复。`);
+            window.setTimeout(() => window.location.reload(), 1200);
+            break;
+          }
         }
         setProgress(i + 1, rows.length);
         await sleep(600);
       }
-      setStatus(`\u4efb\u52a1\u7ed3\u675f\u3002\u6210\u529f ${success}\uff0c\u5931\u8d25 ${failed}${failedRows.length ? `\n${failedRows.join("\n")}` : ""}`);
-      if (source === "auto" || source === "timer") {
+      if (!abortedForRecovery) {
+        setStatus(`\u4efb\u52a1\u7ed3\u675f\u3002\u6210\u529f ${success}\uff0c\u5931\u8d25 ${failed}${failedRows.length ? `\n${failedRows.join("\n")}` : ""}`);
+      }
+      if ((source === "auto" || source === "timer") && !abortedForRecovery) {
         await updateAutoState({
           action: "complete",
           roundId,

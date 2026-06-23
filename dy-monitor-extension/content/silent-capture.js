@@ -496,6 +496,34 @@
     return false;
   }
 
+  function refreshActionButtons() {
+    return Array.from(document.querySelectorAll("button,a,[role='button']"))
+      .filter(visible)
+      .filter((node) => /^(刷新|查询|搜索|确定|重置)$/.test(compact(text(node))))
+      .slice(0, 4);
+  }
+
+  async function triggerAggressiveRefresh(page) {
+    const before = Date.now();
+    await triggerCurrentPageRefresh(page);
+    const ranking = findTopButton(LABELS.ranking);
+    const realtime = findTopButton(LABELS.realtime);
+    if (ranking) {
+      click(ranking);
+      await sleep(350);
+    }
+    if (realtime) {
+      click(realtime);
+      await sleep(350);
+    }
+    for (const button of refreshActionButtons()) {
+      click(button);
+      await sleep(450);
+      if (apiCandidateCount(before) > 0) break;
+    }
+    return before;
+  }
+
   function parseJson(value) {
     try {
       return value ? JSON.parse(value) : null;
@@ -925,6 +953,17 @@
     return { rows: [], candidate: null };
   }
 
+  function recentApiSummary(after = 0) {
+    const candidates = (runtime.state.apiCandidates || [])
+      .filter((item) => item.responseText && Number(item.capturedAt || 0) >= after)
+      .sort((a, b) => Number(b.capturedAt || 0) - Number(a.capturedAt || 0));
+    return {
+      count: candidates.length,
+      latestUrl: candidates[0]?.url || "",
+      latestLength: candidates[0]?.responseText?.length || 0
+    };
+  }
+
   async function waitForApiRows(meta, page, after, timeoutMs = 10000) {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
@@ -962,14 +1001,28 @@
       if (page === 1 && !result.rows.length) {
         result = bestRecentRows(resolvedMeta, page, keepAfter);
       }
+      let retried = false;
+      if (page === 1 && !result.rows.length) {
+        retried = true;
+        const retryAfter = await triggerAggressiveRefresh(1);
+        result = await waitForApiRows(resolvedMeta, page, retryAfter, 12000);
+        if (!result.rows.length) {
+          result = bestRecentRows(resolvedMeta, page, keepAfter);
+        }
+      }
       result = { ...result, rows: mergeVisibleMetrics(result.rows, page) };
+      const apiSummary = recentApiSummary(before);
       records.push(...result.rows);
       debug.push({
         page,
         ok: pageOk,
         count: result.rows.length,
         currentPage: currentPage(),
-        api: result.candidate?.url || ""
+        api: result.candidate?.url || "",
+        apiCandidateCount: apiSummary.count,
+        latestApi: apiSummary.latestUrl,
+        latestApiLength: apiSummary.latestLength,
+        retried
       });
       runtime.state.latestCaptureDiagnostics = {
         captureMode: "api-v4",
