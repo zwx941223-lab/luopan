@@ -129,9 +129,7 @@ function Clear-EdgeRuntimeCache {
     "DawnCache",
     "ShaderCache",
     "GrShaderCache",
-    "GraphiteDawnCache",
-    "Service Worker\CacheStorage",
-    "Service Worker\ScriptCache"
+    "GraphiteDawnCache"
   )
 
   foreach ($profile in $profileDirs) {
