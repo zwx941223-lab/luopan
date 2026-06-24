@@ -81,8 +81,34 @@ function Open-Compass {
   }
 
   Write-GuardianLog "opening compass capture page"
-  Start-Process "msedge.exe" -ArgumentList @($CompassUrl) | Out-Null
+  $edgeProcess = Start-Process "msedge.exe" -ArgumentList @($CompassUrl) -PassThru
+  Refresh-CompassPageAfterOpen $edgeProcess
   Set-Content -LiteralPath $LastOpenFile -Value $now
+}
+
+function Refresh-CompassPageAfterOpen {
+  param($EdgeProcess)
+
+  try {
+    Start-Sleep -Seconds 8
+    $shell = New-Object -ComObject WScript.Shell
+    $activated = $false
+    if ($EdgeProcess -and $EdgeProcess.Id) {
+      $activated = [bool]$shell.AppActivate($EdgeProcess.Id)
+    }
+    if (-not $activated) {
+      $activated = [bool]$shell.AppActivate("Microsoft Edge")
+    }
+    if (-not $activated) {
+      Write-GuardianLog "compass refresh skipped: edge window not active"
+      return
+    }
+    Start-Sleep -Milliseconds 500
+    $shell.SendKeys("{F5}")
+    Write-GuardianLog "compass page refreshed after open"
+  } catch {
+    Write-GuardianLog "compass refresh failed: $($_.Exception.Message)"
+  }
 }
 
 function Stop-EdgeForCleanRestart {
