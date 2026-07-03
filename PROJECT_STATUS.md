@@ -2,6 +2,7 @@
 
 ## 2026-07-03 - plugin-v4.4.0 Compass category catalog + API category capture
 
+- Status confirmed by L on 2026-07-04: this version works end-to-end and should be preserved as the stable baseline.
 - `plugin-v4.3.1` confirmed only partially successful on the server: some categories could run, but several categories still failed at category switching.
 - Added startup/background Compass category catalog sync. The plugin now watches/probes Compass category/industry APIs and replaces the old fixed category menu when real second-level categories are found.
 - The panel keeps the same level-1 checkbox + level-2 dropdown interaction, but its source can now be the live Compass category tree with `industryId` and `categoryId`.
