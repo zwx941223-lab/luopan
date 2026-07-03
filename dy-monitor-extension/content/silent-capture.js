@@ -91,20 +91,36 @@
       .filter(visible)
       .find((node) => compact(text(node)) === compact(LABELS.category));
     const baseSelector = ".ecom-cascader-picker,[class*='cascader'][class*='picker']";
+    const isLikelyCategoryPicker = (item) =>
+      item.label.includes("/") ||
+      getCategories().some((cat) => {
+        const level1 = compact(cat.level1 || cat.name.split("/")[0] || "");
+        const level2 = compact(cat.level2 || cat.name.split("/").slice(1).join("/") || cat.name);
+        const value = compact(item.label);
+        return (level1 && value.includes(level1)) || (level2 && value.includes(level2));
+      });
     if (label) {
       const labelRect = label.getBoundingClientRect();
       const candidates = Array.from(document.querySelectorAll(baseSelector))
         .filter(visible)
         .map((node) => ({ node, rect: node.getBoundingClientRect(), label: text(node) }))
-        .filter((item) => item.rect.left > labelRect.right - 8)
-        .filter((item) => item.rect.left < labelRect.right + Math.max(520, innerWidth * 0.45))
-        .filter((item) => sameRow(labelRect, item.rect))
+        .filter((item) => item.rect.left > labelRect.left - 8)
+        .filter((item) => item.rect.left < labelRect.right + Math.max(760, innerWidth * 0.62))
+        .filter((item) => item.rect.top > labelRect.top - 16)
+        .filter((item) => item.rect.top < labelRect.bottom + Math.max(80, labelRect.height * 3.2))
         .filter((item) => item.rect.width >= 110 && item.rect.height >= 24)
-        .sort((a, b) => a.rect.left - b.rect.left);
+        .sort((a, b) => {
+          const aLikely = isLikelyCategoryPicker(a) ? 0 : 1;
+          const bLikely = isLikelyCategoryPicker(b) ? 0 : 1;
+          return aLikely - bLikely ||
+            Math.abs((a.rect.top + a.rect.height / 2) - (labelRect.top + labelRect.height / 2)) -
+              Math.abs((b.rect.top + b.rect.height / 2) - (labelRect.top + labelRect.height / 2)) ||
+            a.rect.left - b.rect.left;
+        });
       if (candidates[0]?.node) {
         runtime.state.latestCategoryDebug = {
           ...(runtime.state.latestCategoryDebug || {}),
-          picker: "near-label",
+          picker: "near-label-flex",
           pickerText: candidates[0].label,
           pickerRect: `${Math.round(candidates[0].rect.left)},${Math.round(candidates[0].rect.top)},${Math.round(candidates[0].rect.width)}x${Math.round(candidates[0].rect.height)}`
         };
@@ -115,7 +131,7 @@
       .filter(visible)
       .map((node) => ({ node, rect: node.getBoundingClientRect(), label: text(node) }))
       .filter((item) => item.rect.width >= 110 && item.rect.height >= 24)
-      .filter((item) => item.label.includes("/") || getCategories().some((cat) => compact(item.label).includes(compact(cat.level2 || cat.name))))
+      .filter(isLikelyCategoryPicker)
       .sort((a, b) => a.rect.top - b.rect.top || a.rect.left - b.rect.left)[0];
     if (fallback?.node) {
       runtime.state.latestCategoryDebug = {
