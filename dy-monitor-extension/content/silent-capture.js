@@ -90,7 +90,19 @@
     const label = Array.from(document.querySelectorAll("span,div,label"))
       .filter(visible)
       .find((node) => compact(text(node)) === compact(LABELS.category));
-    const baseSelector = ".ecom-cascader-picker,[class*='cascader'][class*='picker']";
+    const baseSelector = [
+      ".ecom-cascader-picker",
+      "[class*='cascader']",
+      "[role='combobox']",
+      "[aria-haspopup]",
+      "[class*='select'][class*='selector']",
+      "[class*='select'][class*='selection']",
+      "[class*='picker']",
+      "input[readonly]",
+      "button",
+      "span",
+      "div"
+    ].join(",");
     const isLikelyCategoryPicker = (item) =>
       item.label.includes("/") ||
       getCategories().some((cat) => {
@@ -99,6 +111,35 @@
         const value = compact(item.label);
         return (level1 && value.includes(level1)) || (level2 && value.includes(level2));
       });
+    const interactiveScore = (node) => {
+      const signature = [
+        node.tagName,
+        node.className,
+        node.getAttribute?.("role"),
+        node.getAttribute?.("aria-haspopup"),
+        node.getAttribute?.("placeholder")
+      ].join(" ").toLowerCase();
+      if (/cascader|combobox|select|selector|selection|picker|trigger/.test(signature)) return 0;
+      if (/button|aria-haspopup/.test(signature)) return 1;
+      return 2;
+    };
+    const isBadCategoryCandidate = (item) => {
+      const value = compact(item.label);
+      const signature = [
+        value,
+        item.node.className,
+        item.node.getAttribute?.("placeholder"),
+        item.node.getAttribute?.("aria-label")
+      ].join(" ").toLowerCase();
+      if (!value && interactiveScore(item.node) > 1) return true;
+      if (value === compact(LABELS.category)) return true;
+      if (/搜索|请输入|商品名|search|keyword/.test(signature)) return true;
+      if (value.length > 80 && !isLikelyCategoryPicker(item)) return true;
+      return false;
+    };
+    const clickablePickerNode = (node) =>
+      node.closest?.("[role='combobox'],[aria-haspopup],[class*='cascader'],[class*='select'][class*='selector'],[class*='select'][class*='selection'],[class*='picker'],button") ||
+      node;
     if (label) {
       const labelRect = label.getBoundingClientRect();
       const candidates = Array.from(document.querySelectorAll(baseSelector))
@@ -108,40 +149,45 @@
         .filter((item) => item.rect.left < labelRect.right + Math.max(760, innerWidth * 0.62))
         .filter((item) => item.rect.top > labelRect.top - 16)
         .filter((item) => item.rect.top < labelRect.bottom + Math.max(80, labelRect.height * 3.2))
-        .filter((item) => item.rect.width >= 110 && item.rect.height >= 24)
+        .filter((item) => item.rect.width >= 48 && item.rect.height >= 16)
+        .filter((item) => !isBadCategoryCandidate(item))
         .sort((a, b) => {
           const aLikely = isLikelyCategoryPicker(a) ? 0 : 1;
           const bLikely = isLikelyCategoryPicker(b) ? 0 : 1;
           return aLikely - bLikely ||
+            interactiveScore(a.node) - interactiveScore(b.node) ||
             Math.abs((a.rect.top + a.rect.height / 2) - (labelRect.top + labelRect.height / 2)) -
               Math.abs((b.rect.top + b.rect.height / 2) - (labelRect.top + labelRect.height / 2)) ||
+            Math.abs(a.rect.left - labelRect.right) - Math.abs(b.rect.left - labelRect.right) ||
             a.rect.left - b.rect.left;
         });
       if (candidates[0]?.node) {
+        const picker = clickablePickerNode(candidates[0].node);
         runtime.state.latestCategoryDebug = {
           ...(runtime.state.latestCategoryDebug || {}),
-          picker: "near-label-flex",
+          picker: "near-label-adaptive",
           pickerText: candidates[0].label,
           pickerRect: `${Math.round(candidates[0].rect.left)},${Math.round(candidates[0].rect.top)},${Math.round(candidates[0].rect.width)}x${Math.round(candidates[0].rect.height)}`
         };
-        return candidates[0].node;
+        return picker;
       }
     }
     const fallback = Array.from(document.querySelectorAll(baseSelector))
       .filter(visible)
       .map((node) => ({ node, rect: node.getBoundingClientRect(), label: text(node) }))
-      .filter((item) => item.rect.width >= 110 && item.rect.height >= 24)
+      .filter((item) => item.rect.width >= 48 && item.rect.height >= 16)
+      .filter((item) => !isBadCategoryCandidate(item))
       .filter(isLikelyCategoryPicker)
-      .sort((a, b) => a.rect.top - b.rect.top || a.rect.left - b.rect.left)[0];
+      .sort((a, b) => interactiveScore(a.node) - interactiveScore(b.node) || a.rect.top - b.rect.top || a.rect.left - b.rect.left)[0];
     if (fallback?.node) {
       runtime.state.latestCategoryDebug = {
         ...(runtime.state.latestCategoryDebug || {}),
-        picker: "fallback-cascader",
+        picker: "fallback-adaptive",
         pickerText: fallback.label,
         pickerRect: `${Math.round(fallback.rect.left)},${Math.round(fallback.rect.top)},${Math.round(fallback.rect.width)}x${Math.round(fallback.rect.height)}`
       };
     }
-    return fallback?.node || null;
+    return fallback?.node ? clickablePickerNode(fallback.node) : null;
   }
 
   async function openCategoryMenu(picker) {
@@ -1001,142 +1047,6 @@
     };
   }
 
-  function directApiTemplate() {
-    return (runtime.state.apiCandidates || [])
-      .filter((item) => item?.url && /\/compass_api\//i.test(item.url))
-      .filter((item) => /\/shop\/product\/product_rank\//i.test(item.url) || /rank|ranking|board/i.test(`${item.url} ${item.bodyText || ""}`))
-      .sort((a, b) => {
-        const aProduct = isProductRankApiUrl(a.url) ? 0 : 1;
-        const bProduct = isProductRankApiUrl(b.url) ? 0 : 1;
-        return aProduct - bProduct || Number(b.capturedAt || 0) - Number(a.capturedAt || 0);
-      })[0] || null;
-  }
-
-  function absoluteApiUrl(url) {
-    try {
-      return new URL(url, location.origin);
-    } catch {
-      return null;
-    }
-  }
-
-  function setCategorySearchParam(params, categoryId) {
-    const keys = Array.from(params.keys());
-    let changed = false;
-    keys.forEach((key) => {
-      const lower = key.toLowerCase();
-      if ((lower.includes("category") || lower.includes("cate")) && lower.includes("id")) {
-        params.set(key, categoryId);
-        changed = true;
-      }
-    });
-    if (!changed) {
-      params.set("category_id", categoryId);
-    }
-  }
-
-  function directApiUrl(template, meta, page) {
-    const url = absoluteApiUrl(template?.url || "");
-    if (!url || !meta.categoryId) return "";
-    const params = url.searchParams;
-    setCategorySearchParam(params, String(meta.categoryId));
-    ["page_no", "pageNo", "page", "current"].forEach((key) => {
-      if (params.has(key)) params.set(key, String(page));
-    });
-    if (!["page_no", "pageNo", "page", "current"].some((key) => params.has(key))) {
-      params.set("page_no", String(page));
-    }
-    ["page_size", "pageSize", "limit"].forEach((key) => {
-      if (params.has(key)) params.set(key, "10");
-    });
-    return url.toString();
-  }
-
-  async function fetchDirectApiCandidate(meta, page) {
-    const template = directApiTemplate();
-    const url = directApiUrl(template, meta, page);
-    if (!url) return null;
-    const startedAt = Date.now();
-    const response = await fetch(url, {
-      method: "GET",
-      credentials: "include",
-      headers: {
-        accept: "application/json, text/plain, */*"
-      }
-    });
-    const responseText = await response.text();
-    const candidate = {
-      url,
-      method: "GET",
-      headers: {},
-      bodyText: "",
-      responseText,
-      source: "direct-fetch",
-      capturedAt: startedAt,
-      status: response.status
-    };
-    runtime.state.latestApiRequest = candidate;
-    runtime.state.latestApiCapturedAt = candidate.capturedAt;
-    runtime.state.apiCandidates = [candidate, ...(runtime.state.apiCandidates || [])].slice(0, 50);
-    return candidate;
-  }
-
-  async function captureDirectApi(meta, pageLimit) {
-    const records = [];
-    const debug = [];
-    const resolvedMeta = {
-      categoryId: meta.categoryId || "",
-      categoryName: meta.categoryName || ""
-    };
-    if (!resolvedMeta.categoryId || !directApiTemplate()) {
-      return { records, debug, successfulPages: 0, detectedCategory: resolvedMeta, directApiAttempted: false };
-    }
-    for (let page = 1; page <= pageLimit; page += 1) {
-      let candidate = null;
-      let rows = [];
-      try {
-        candidate = await fetchDirectApiCandidate(resolvedMeta, page);
-        rows = rowsFromCandidate(candidate, resolvedMeta, page);
-      } catch (error) {
-        debug.push({
-          page,
-          ok: false,
-          count: 0,
-          api: "",
-          directApi: true,
-          error: error.message || String(error)
-        });
-        continue;
-      }
-      records.push(...rows);
-      debug.push({
-        page,
-        ok: Boolean(candidate?.responseText),
-        count: rows.length,
-        api: candidate?.url || "",
-        directApi: true,
-        status: candidate?.status || 0
-      });
-      runtime.state.latestCaptureDiagnostics = {
-        captureMode: "api-direct-v1",
-        recordCount: records.length,
-        successfulPages: debug.filter((item) => item.count > 0).length,
-        pageLimit,
-        latestPage: page,
-        latestApi: candidate?.url || "",
-        debug
-      };
-      await sleep(180);
-    }
-    return {
-      records,
-      debug,
-      successfulPages: debug.filter((item) => item.count > 0).length,
-      detectedCategory: resolvedMeta,
-      directApiAttempted: true
-    };
-  }
-
   async function waitForApiRows(meta, page, after, timeoutMs = 10000) {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
@@ -1153,14 +1063,6 @@
       categoryId: meta.categoryId || "",
       categoryName: meta.categoryName || currentCategoryLabel() || ""
     };
-
-    if (meta.preferDirectApi) {
-      const directResult = await captureDirectApi(resolvedMeta, pageLimit);
-      if (directResult.records.length || directResult.directApiAttempted) {
-        return directResult;
-      }
-    }
-
     const records = [];
     const debug = [];
 
