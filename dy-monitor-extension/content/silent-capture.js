@@ -11,6 +11,7 @@
   const sleep = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
   const text = (node) => String(node?.innerText || node?.textContent || "").replace(/\s+/g, " ").trim();
   const compact = (value) => String(value || "").replace(/\s+/g, "").trim();
+  const sameCompactText = (left, right) => compact(left) === compact(right);
   const visible = (node) => {
     if (!node || node.closest?.("#dy-monitor-root")) return false;
     const rect = node.getBoundingClientRect?.();
@@ -158,6 +159,15 @@
     return text(categoryPicker());
   }
 
+  function rememberAppliedCategory(level1, level2, allClicked) {
+    runtime.state.latestAppliedCategory = {
+      level1,
+      level2,
+      allClicked: Boolean(allClicked),
+      appliedAt: Date.now()
+    };
+  }
+
   function menuColumns() {
     return Array.from(document.querySelectorAll(".ecom-cascader-menu,[class*='cascader'][class*='menu'],[role='menu'],[role='listbox']"))
       .filter(visible)
@@ -223,10 +233,20 @@
 
   function categoryLabelMatches(level1, level2) {
     const label = compact(currentCategoryLabel());
+    const latestApplied = runtime.state.latestAppliedCategory || null;
+    const recentlyApplied =
+      latestApplied &&
+      Date.now() - Number(latestApplied.appliedAt || 0) < 20000 &&
+      latestApplied.allClicked &&
+      sameCompactText(latestApplied.level1, level1) &&
+      sameCompactText(latestApplied.level2, level2);
+    if (!label && recentlyApplied) {
+      return true;
+    }
     if (isAlcoholSameNameCategory(level1, level2)) {
       return label.includes(compact(`${level1}/${level2}/\u5168\u90E8`));
     }
-    return label.includes(compact(level2));
+    return label.includes(compact(level2)) || label.includes(compact(`${level1}/${level2}`));
   }
 
   async function waitForCategoryLabel(level1, level2, timeoutMs = 2600) {
@@ -291,6 +311,7 @@
       document.body.click();
       await sleep(1000);
     }
+    rememberAppliedCategory(level1, level2, allClicked);
 
     await sleep(2000);
     const ok = await waitForCategoryLabel(level1, level2, 2400);
