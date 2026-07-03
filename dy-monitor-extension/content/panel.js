@@ -216,21 +216,40 @@
 
   async function collectOne(category, index, total, context = {}) {
     const totalStartedAt = performance.now();
-    const switchStartedAt = performance.now();
-    setStatus(`(${index}/${total}) \u5207\u6362\u7c7b\u76ee\uff1a${category.categoryName}`);
-    const switched = await runtime.silentCapture.switchToCategory(category);
-    if (!switched?.ok) throw new Error(switched?.message || t.switchFailed);
-    const switchMs = Math.round(performance.now() - switchStartedAt);
-
-    const collectStartedAt = performance.now();
-    setStatus(`(${index}/${total}) \u5f00\u59cb\u91c7\u96c6\uff1a${category.categoryName}`);
-    const result = await runtime.silentCapture.collectSilently({
+    let result = null;
+    let switchMs = 0;
+    let collectMs = 0;
+    const directStartedAt = performance.now();
+    setStatus(`(${index}/${total}) API direct capture: ${category.categoryName}`);
+    const directResult = await runtime.silentCapture.collectSilently({
       categoryId: category.categoryId,
       categoryName: category.categoryName,
-      pageLimit: runtime.config.pageLimit || 10
+      pageLimit: runtime.config.pageLimit || 10,
+      preferDirectApi: true
     });
-    if (!result.records.length) throw new Error(`${t.noData}（${noDataDetails()}）`);
-    const collectMs = Math.round(performance.now() - collectStartedAt);
+    if (directResult.records.length) {
+      result = directResult;
+      collectMs = Math.round(performance.now() - directStartedAt);
+    }
+    const switchStartedAt = performance.now();
+    if (!result) {
+      setStatus(`(${index}/${total}) \u5207\u6362\u7c7b\u76ee\uff1a${category.categoryName}`);
+      const switched = await runtime.silentCapture.switchToCategory(category);
+      if (!switched?.ok) throw new Error(switched?.message || t.switchFailed);
+      switchMs = Math.round(performance.now() - switchStartedAt);
+    }
+
+    const collectStartedAt = performance.now();
+    if (!result) {
+      setStatus(`(${index}/${total}) \u5f00\u59cb\u91c7\u96c6\uff1a${category.categoryName}`);
+      result = await runtime.silentCapture.collectSilently({
+        categoryId: category.categoryId,
+        categoryName: category.categoryName,
+        pageLimit: runtime.config.pageLimit || 10
+      });
+      collectMs = Math.round(performance.now() - collectStartedAt);
+    }
+    if (!result.records.length) throw new Error(`${t.noData} (${noDataDetails()})`);
     const domFallbackPages = (result.debug || []).filter((item) => item.api === "dom-fallback").length;
 
     const uploadStartedAt = performance.now();

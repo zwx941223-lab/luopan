@@ -1001,6 +1001,142 @@
     };
   }
 
+  function directApiTemplate() {
+    return (runtime.state.apiCandidates || [])
+      .filter((item) => item?.url && /\/compass_api\//i.test(item.url))
+      .filter((item) => /\/shop\/product\/product_rank\//i.test(item.url) || /rank|ranking|board/i.test(`${item.url} ${item.bodyText || ""}`))
+      .sort((a, b) => {
+        const aProduct = isProductRankApiUrl(a.url) ? 0 : 1;
+        const bProduct = isProductRankApiUrl(b.url) ? 0 : 1;
+        return aProduct - bProduct || Number(b.capturedAt || 0) - Number(a.capturedAt || 0);
+      })[0] || null;
+  }
+
+  function absoluteApiUrl(url) {
+    try {
+      return new URL(url, location.origin);
+    } catch {
+      return null;
+    }
+  }
+
+  function setCategorySearchParam(params, categoryId) {
+    const keys = Array.from(params.keys());
+    let changed = false;
+    keys.forEach((key) => {
+      const lower = key.toLowerCase();
+      if ((lower.includes("category") || lower.includes("cate")) && lower.includes("id")) {
+        params.set(key, categoryId);
+        changed = true;
+      }
+    });
+    if (!changed) {
+      params.set("category_id", categoryId);
+    }
+  }
+
+  function directApiUrl(template, meta, page) {
+    const url = absoluteApiUrl(template?.url || "");
+    if (!url || !meta.categoryId) return "";
+    const params = url.searchParams;
+    setCategorySearchParam(params, String(meta.categoryId));
+    ["page_no", "pageNo", "page", "current"].forEach((key) => {
+      if (params.has(key)) params.set(key, String(page));
+    });
+    if (!["page_no", "pageNo", "page", "current"].some((key) => params.has(key))) {
+      params.set("page_no", String(page));
+    }
+    ["page_size", "pageSize", "limit"].forEach((key) => {
+      if (params.has(key)) params.set(key, "10");
+    });
+    return url.toString();
+  }
+
+  async function fetchDirectApiCandidate(meta, page) {
+    const template = directApiTemplate();
+    const url = directApiUrl(template, meta, page);
+    if (!url) return null;
+    const startedAt = Date.now();
+    const response = await fetch(url, {
+      method: "GET",
+      credentials: "include",
+      headers: {
+        accept: "application/json, text/plain, */*"
+      }
+    });
+    const responseText = await response.text();
+    const candidate = {
+      url,
+      method: "GET",
+      headers: {},
+      bodyText: "",
+      responseText,
+      source: "direct-fetch",
+      capturedAt: startedAt,
+      status: response.status
+    };
+    runtime.state.latestApiRequest = candidate;
+    runtime.state.latestApiCapturedAt = candidate.capturedAt;
+    runtime.state.apiCandidates = [candidate, ...(runtime.state.apiCandidates || [])].slice(0, 50);
+    return candidate;
+  }
+
+  async function captureDirectApi(meta, pageLimit) {
+    const records = [];
+    const debug = [];
+    const resolvedMeta = {
+      categoryId: meta.categoryId || "",
+      categoryName: meta.categoryName || ""
+    };
+    if (!resolvedMeta.categoryId || !directApiTemplate()) {
+      return { records, debug, successfulPages: 0, detectedCategory: resolvedMeta, directApiAttempted: false };
+    }
+    for (let page = 1; page <= pageLimit; page += 1) {
+      let candidate = null;
+      let rows = [];
+      try {
+        candidate = await fetchDirectApiCandidate(resolvedMeta, page);
+        rows = rowsFromCandidate(candidate, resolvedMeta, page);
+      } catch (error) {
+        debug.push({
+          page,
+          ok: false,
+          count: 0,
+          api: "",
+          directApi: true,
+          error: error.message || String(error)
+        });
+        continue;
+      }
+      records.push(...rows);
+      debug.push({
+        page,
+        ok: Boolean(candidate?.responseText),
+        count: rows.length,
+        api: candidate?.url || "",
+        directApi: true,
+        status: candidate?.status || 0
+      });
+      runtime.state.latestCaptureDiagnostics = {
+        captureMode: "api-direct-v1",
+        recordCount: records.length,
+        successfulPages: debug.filter((item) => item.count > 0).length,
+        pageLimit,
+        latestPage: page,
+        latestApi: candidate?.url || "",
+        debug
+      };
+      await sleep(180);
+    }
+    return {
+      records,
+      debug,
+      successfulPages: debug.filter((item) => item.count > 0).length,
+      detectedCategory: resolvedMeta,
+      directApiAttempted: true
+    };
+  }
+
   async function waitForApiRows(meta, page, after, timeoutMs = 10000) {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
@@ -1017,6 +1153,14 @@
       categoryId: meta.categoryId || "",
       categoryName: meta.categoryName || currentCategoryLabel() || ""
     };
+
+    if (meta.preferDirectApi) {
+      const directResult = await captureDirectApi(resolvedMeta, pageLimit);
+      if (directResult.records.length || directResult.directApiAttempted) {
+        return directResult;
+      }
+    }
+
     const records = [];
     const debug = [];
 
