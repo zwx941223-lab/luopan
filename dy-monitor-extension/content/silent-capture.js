@@ -53,7 +53,176 @@
   }
 
   function getCategories() {
+    const dynamic = Array.isArray(runtime.state.dynamicCategories) ? runtime.state.dynamicCategories : [];
+    if (dynamic.length) return dynamic;
     return Array.isArray(window.DY_MONITOR_STANDARD_CATEGORIES) ? window.DY_MONITOR_STANDARD_CATEGORIES : [];
+  }
+
+  function safeJson(value) {
+    try {
+      return value ? JSON.parse(value) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function directValue(input, keys) {
+    if (!input || typeof input !== "object" || Array.isArray(input)) return "";
+    for (const key of keys) {
+      const found = Object.entries(input).find(([name]) => String(name).toLowerCase() === key.toLowerCase());
+      if (found && found[1] != null && typeof found[1] !== "object") return String(found[1]).trim();
+    }
+    return "";
+  }
+
+  function categoryNodeName(node) {
+    return directValue(node, [
+      "name",
+      "label",
+      "title",
+      "categoryName",
+      "category_name",
+      "cateName",
+      "cate_name",
+      "industryName",
+      "industry_name"
+    ]);
+  }
+
+  function categoryNodeId(node) {
+    return directValue(node, [
+      "categoryId",
+      "category_id",
+      "cateId",
+      "cate_id",
+      "secondCateId",
+      "second_cate_id",
+      "id",
+      "value"
+    ]);
+  }
+
+  function industryNodeId(node) {
+    return directValue(node, [
+      "industryId",
+      "industry_id",
+      "firstCateId",
+      "first_cate_id",
+      "parentId",
+      "parent_id",
+      "id",
+      "value"
+    ]);
+  }
+
+  function childArrays(node) {
+    if (!node || typeof node !== "object" || Array.isArray(node)) return [];
+    return Object.entries(node)
+      .filter(([key, value]) => /children|child|list|items|subs|category|cate/i.test(key) && Array.isArray(value))
+      .map(([, value]) => value);
+  }
+
+  function normalizeCategoryRows(rows) {
+    const map = new Map();
+    rows.forEach((row) => {
+      const id = String(row.id || "").trim();
+      const level1 = String(row.level1 || "").trim();
+      const level2 = String(row.level2 || "").trim();
+      if (!id || !level1 || !level2 || level2 === "\u5168\u90e8") return;
+      const key = `${id}|${level1}|${level2}`;
+      if (!map.has(key)) {
+        map.set(key, {
+          id,
+          name: row.name || `${level1}/${level2}`,
+          level1,
+          level2,
+          industryId: String(row.industryId || "").trim(),
+          source: row.source || "compass"
+        });
+      }
+    });
+    return Array.from(map.values()).sort((a, b) =>
+      a.level1.localeCompare(b.level1, "zh-Hans-CN") ||
+      a.level2.localeCompare(b.level2, "zh-Hans-CN")
+    );
+  }
+
+  function categoriesFromPayload(payload, source = "") {
+    const rows = [];
+    const visit = (node, ancestors = []) => {
+      if (!node || typeof node !== "object") return;
+      if (Array.isArray(node)) {
+        node.forEach((item) => visit(item, ancestors));
+        return;
+      }
+      const name = categoryNodeName(node);
+      const id = categoryNodeId(node);
+      const children = childArrays(node).flat().filter((item) => item && typeof item === "object");
+      if (ancestors.length && name && id) {
+        const parent = ancestors[ancestors.length - 1];
+        rows.push({
+          id,
+          level1: parent.name,
+          level2: name,
+          name: `${parent.name}/${name}`,
+          industryId: parent.industryId || parent.id,
+          source
+        });
+      }
+      const nextAncestors = name
+        ? [...ancestors, { name, id, industryId: industryNodeId(node) || id }]
+        : ancestors;
+      children.forEach((child) => visit(child, nextAncestors));
+    };
+    visit(payload, []);
+    return normalizeCategoryRows(rows);
+  }
+
+  async function syncCategoryCatalog() {
+    const now = Date.now();
+    if (!runtime.state.categoryCatalogProbeAt || now - Number(runtime.state.categoryCatalogProbeAt || 0) > 30000) {
+      runtime.state.categoryCatalogProbeAt = now;
+      const urls = (performance.getEntriesByType?.("resource") || [])
+        .map((entry) => entry.name)
+        .filter((url) => /\/compass_api\//i.test(url))
+        .filter((url) => /cate|category|industry/i.test(url))
+        .slice(-8);
+      for (const url of urls) {
+        try {
+          const response = await fetch(url, { credentials: "include", headers: { accept: "application/json, text/plain, */*" } });
+          const candidate = {
+            url,
+            method: "GET",
+            headers: {},
+            bodyText: "",
+            responseText: await response.text(),
+            source: "category-probe",
+            capturedAt: Date.now(),
+            status: response.status
+          };
+          runtime.state.apiCandidates = [candidate, ...(runtime.state.apiCandidates || [])].slice(0, 50);
+        } catch {
+          // The catalog is opportunistic; failed probes keep the fallback category list.
+        }
+      }
+    }
+    const rows = [];
+    (runtime.state.apiCandidates || []).forEach((candidate) => {
+      const source = `${candidate.url || ""} ${candidate.bodyText || ""}`.toLowerCase();
+      if (!/cate|category|industry/.test(source)) return;
+      rows.push(...categoriesFromPayload(safeJson(candidate.responseText), candidate.url || "api"));
+    });
+    const normalized = normalizeCategoryRows(rows);
+    if (normalized.length >= 5) {
+      runtime.state.dynamicCategories = normalized;
+      runtime.state.latestCategoryCatalog = {
+        count: normalized.length,
+        level1Count: new Set(normalized.map((item) => item.level1)).size,
+        syncedAt: Date.now()
+      };
+      window.dispatchEvent(new CustomEvent("dy-monitor:categories-updated", { detail: runtime.state.latestCategoryCatalog }));
+    }
+    return runtime.state.dynamicCategories || [];
   }
 
   function findTopButton(label) {
@@ -395,6 +564,7 @@
 
     await ensureTopButton(LABELS.ranking, 450);
     await ensureTopButton(LABELS.realtime, 450);
+    await syncCategoryCatalog();
 
     if (categoryLabelMatches(level1, level2)) {
       return {
@@ -402,6 +572,14 @@
         detected: { categoryId: category.categoryId || category.id || "", categoryName: `${level1}/${level2}` },
         message: "\u5f53\u524d\u5df2\u662f\u76ee\u6807\u7c7b\u76ee"
       };
+    }
+
+    const apiSwitch = await switchByCategoryApi(category, level1, level2).catch((error) => ({
+      ok: false,
+      message: error.message || String(error)
+    }));
+    if (apiSwitch.ok) {
+      return apiSwitch;
     }
 
     let last = null;
@@ -1047,6 +1225,143 @@
     };
   }
 
+  function latestRankTemplate() {
+    return runtime.state.latestRankApiTemplate ||
+      (runtime.state.apiCandidates || [])
+        .filter((item) => item?.url && isProductRankApiUrl(item.url))
+        .sort((a, b) => Number(b.capturedAt || 0) - Number(a.capturedAt || 0))[0] ||
+      null;
+  }
+
+  function urlFromTemplate(template) {
+    try {
+      return new URL(template?.url || "", location.origin);
+    } catch {
+      return null;
+    }
+  }
+
+  function setKnownParam(params, names, value) {
+    if (value == null || value === "") return false;
+    let changed = false;
+    names.forEach((name) => {
+      if (params.has(name)) {
+        params.set(name, String(value));
+        changed = true;
+      }
+    });
+    if (!changed && names[0]) {
+      params.set(names[0], String(value));
+      changed = true;
+    }
+    return changed;
+  }
+
+  function categoryApiUrl(template, meta, page) {
+    const url = urlFromTemplate(template);
+    if (!url || !meta.categoryId) return "";
+    const params = url.searchParams;
+    setKnownParam(params, ["category_id", "categoryId", "cate_id", "cateId", "second_cate_id", "secondCateId"], meta.categoryId);
+    if (meta.industryId) {
+      setKnownParam(params, ["industry_id", "industryId", "first_cate_id", "firstCateId"], meta.industryId);
+    }
+    setKnownParam(params, ["page_no", "pageNo", "page", "current"], page);
+    setKnownParam(params, ["page_size", "pageSize", "limit"], 10);
+    return url.toString();
+  }
+
+  async function fetchCategoryPage(meta, page) {
+    const template = latestRankTemplate();
+    const url = categoryApiUrl(template, meta, page);
+    if (!url) return null;
+    const response = await fetch(url, {
+      method: "GET",
+      credentials: "include",
+      headers: { accept: "application/json, text/plain, */*" }
+    });
+    const candidate = {
+      url,
+      method: "GET",
+      headers: {},
+      bodyText: "",
+      responseText: await response.text(),
+      source: "category-api",
+      capturedAt: Date.now(),
+      status: response.status
+    };
+    runtime.state.latestApiRequest = candidate;
+    runtime.state.latestApiCapturedAt = candidate.capturedAt;
+    runtime.state.apiCandidates = [candidate, ...(runtime.state.apiCandidates || [])].slice(0, 50);
+    return candidate;
+  }
+
+  async function captureByCategoryApi(meta, pageLimit) {
+    if (!latestRankTemplate() || !meta.categoryId) return null;
+    const records = [];
+    const debug = [];
+    for (let page = 1; page <= pageLimit; page += 1) {
+      let candidate = null;
+      let rows = [];
+      try {
+        candidate = await fetchCategoryPage(meta, page);
+        rows = rowsFromCandidate(candidate, meta, page);
+      } catch (error) {
+        debug.push({ page, ok: false, count: 0, api: "", directCategoryApi: true, error: error.message || String(error) });
+        continue;
+      }
+      records.push(...rows);
+      debug.push({
+        page,
+        ok: Boolean(rows.length),
+        count: rows.length,
+        currentPage: page,
+        api: candidate?.url || "",
+        apiCandidateCount: 1,
+        latestApi: candidate?.url || "",
+        latestApiLength: candidate?.responseText?.length || 0,
+        directCategoryApi: true,
+        status: candidate?.status || 0
+      });
+      runtime.state.latestCaptureDiagnostics = {
+        captureMode: "api-category-v1",
+        recordCount: records.length,
+        successfulPages: debug.filter((item) => item.count > 0).length,
+        pageLimit,
+        latestPage: page,
+        latestApi: candidate?.url || "",
+        debug
+      };
+      await sleep(180);
+    }
+    return {
+      records,
+      debug,
+      successfulPages: debug.filter((item) => item.count > 0).length,
+      detectedCategory: meta
+    };
+  }
+
+  async function switchByCategoryApi(category, level1, level2) {
+    const meta = {
+      categoryId: category.categoryId || category.id || "",
+      categoryName: category.categoryName || category.name || `${level1}/${level2}`,
+      level1,
+      level2,
+      industryId: category.industryId || ""
+    };
+    const candidate = await fetchCategoryPage(meta, 1);
+    const rows = rowsFromCandidate(candidate, meta, 1);
+    if (!rows.length) {
+      return { ok: false, message: "\u63a5\u53e3\u5207\u6362\u7c7b\u76ee\u672a\u8fd4\u56de\u699c\u5355\u6570\u636e" };
+    }
+    runtime.state.activeCategoryApiMeta = { ...meta, appliedAt: Date.now() };
+    return {
+      ok: true,
+      detected: { categoryId: meta.categoryId, categoryName: meta.categoryName },
+      message: "\u63a5\u53e3\u5207\u6362\u7c7b\u76ee\u6210\u529f"
+    };
+  }
+
   async function waitForApiRows(meta, page, after, timeoutMs = 10000) {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
@@ -1061,8 +1376,20 @@
     const pageLimit = Number(meta.pageLimit || runtime.state.pageLimit || runtime.config.pageLimit || 10);
     const resolvedMeta = {
       categoryId: meta.categoryId || "",
-      categoryName: meta.categoryName || currentCategoryLabel() || ""
+      categoryName: meta.categoryName || currentCategoryLabel() || "",
+      industryId: meta.industryId || ""
     };
+    const activeApiMeta = runtime.state.activeCategoryApiMeta || null;
+    if (
+      activeApiMeta &&
+      activeApiMeta.categoryId === resolvedMeta.categoryId &&
+      Date.now() - Number(activeApiMeta.appliedAt || 0) < 5 * 60 * 1000
+    ) {
+      const apiResult = await captureByCategoryApi({ ...resolvedMeta, industryId: activeApiMeta.industryId || resolvedMeta.industryId }, pageLimit);
+      if (apiResult?.records?.length) {
+        return apiResult;
+      }
+    }
     const records = [];
     const debug = [];
 
@@ -1131,6 +1458,7 @@
 
   runtime.silentCapture = {
     getStandardCategories: getCategories,
+    syncCategoryCatalog,
     getCurrentCategoryDisplayName: currentCategoryLabel,
     detectCurrentCategory() {
       const label = currentCategoryLabel();

@@ -115,7 +115,7 @@
         <input type="checkbox" id="dy-cat-${index}" data-level1="${level1}">
         <label for="dy-cat-${index}">${level1}</label>
         <select data-level1="${level1}">
-          ${rows.map((item) => `<option value="${item.id}" data-name="${item.name}" data-level1="${item.level1 || level1}" data-level2="${item.level2 || item.name.split("/").slice(1).join("/") || item.name}">${item.level2 || item.name.split("/").slice(1).join("/") || item.name}</option>`).join("")}
+          ${rows.map((item) => `<option value="${item.id}" data-name="${item.name}" data-level1="${item.level1 || level1}" data-level2="${item.level2 || item.name.split("/").slice(1).join("/") || item.name}" data-industry-id="${item.industryId || ""}">${item.level2 || item.name.split("/").slice(1).join("/") || item.name}</option>`).join("")}
         </select>
       </div>
     `).join("");
@@ -131,7 +131,8 @@
           categoryId: select?.value || "",
           categoryName: option?.dataset.name || "",
           level1: option?.dataset.level1 || "",
-          level2: option?.dataset.level2 || ""
+          level2: option?.dataset.level2 || "",
+          industryId: option?.dataset.industryId || ""
         };
       })
       .filter((item) => item.categoryId && item.categoryName);
@@ -142,7 +143,8 @@
       categoryId: item.id,
       categoryName: item.name,
       level1: item.level1 || "",
-      level2: item.level2 || ""
+      level2: item.level2 || "",
+      industryId: item.industryId || ""
     }));
   }
 
@@ -227,6 +229,7 @@
     const result = await runtime.silentCapture.collectSilently({
       categoryId: category.categoryId,
       categoryName: category.categoryName,
+      industryId: category.industryId || "",
       pageLimit: runtime.config.pageLimit || 10
     });
     if (!result.records.length) throw new Error(`${t.noData}（${noDataDetails()}）`);
@@ -251,6 +254,7 @@
     const uploadResult = await upload(result.records, {
       categoryId: category.categoryId,
       categoryName: category.categoryName,
+      industryId: category.industryId || "",
       rankingType: runtime.config.rankingType || "\u77ed\u89c6\u9891\u699c",
       sourceUrl: location.href,
       captureSchemaVersion: 4,
@@ -413,6 +417,15 @@
   });
 
   renderCategories();
+  runtime.silentCapture?.syncCategoryCatalog?.().then((rows) => {
+    if (Array.isArray(rows) && rows.length) {
+      renderCategories();
+      setStatus(`已同步罗盘类目：${rows.length} 个二级类目`);
+    }
+  }).catch(() => {});
+  window.addEventListener("dy-monitor:categories-updated", () => {
+    renderCategories();
+  });
   if (runtime.config.autoCaptureOnOpen) {
     window.setTimeout(() => {
       if (autoStarted || running) return;

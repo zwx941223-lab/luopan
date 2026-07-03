@@ -1,5 +1,13 @@
 # DY Monitor Project Status
 
+## 2026-07-03 - plugin-v4.4.0 Compass category catalog + API category capture
+
+- `plugin-v4.3.1` confirmed only partially successful on the server: some categories could run, but several categories still failed at category switching.
+- Added startup/background Compass category catalog sync. The plugin now watches/probes Compass category/industry APIs and replaces the old fixed category menu when real second-level categories are found.
+- The panel keeps the same level-1 checkbox + level-2 dropdown interaction, but its source can now be the live Compass category tree with `industryId` and `categoryId`.
+- Category collection now first tries API-level category capture using the captured product-rank API template with `industry_id`, `category_id`, and `page_no`; if that fails, it falls back to the previous page switching and pagination flow.
+- Page-limit remains `20`; the old pagination capture path is retained as fallback.
+
 ## 2026-06-21 - server upload rollback + timer guard
 
 - Rolled code back to the server-upload package `server-delivery-plugin-v4.0.5-web-v1.8.0-20260621-165113`.

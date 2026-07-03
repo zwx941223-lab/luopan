@@ -30,7 +30,7 @@
     if (!source.includes("/compass_api/")) {
       return false;
     }
-    if (/mcs\.zijieapi\.com|log|monitor|report|metrics|cate_list/i.test(source)) {
+    if (/mcs\.zijieapi\.com|log|monitor|report|metrics/i.test(source)) {
       return false;
     }
     if (/\/shop\/product\/list|\/product\/list|commodity|product-list/i.test(source)) {
@@ -40,6 +40,9 @@
       source.includes("rank") ||
       source.includes("ranking") ||
       source.includes("board") ||
+      source.includes("cate") ||
+      source.includes("category") ||
+      source.includes("industry") ||
       source.includes("aweme") ||
       source.includes("video") ||
       source.includes("content")
