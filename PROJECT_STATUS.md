@@ -1,5 +1,11 @@
 # DY Monitor Project Status
 
+## 2026-07-10 - web-v1.9.21 changelog page update
+
+- Restored the web changelog page to readable Chinese.
+- Added a clear `web-v1.9.20 / plugin-v4.4.0` entry for the ranking detail `502 Bad Gateway` backend hotfix.
+- Kept plugin capture behavior unchanged.
+
 ## 2026-07-10 - web-v1.9.20 ranking detail 502 hotfix
 
 - Fixed the ranking detail page backend path that could overload the server and trigger intermittent `502 Bad Gateway` when opening the web detail page.
