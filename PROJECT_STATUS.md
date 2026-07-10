@@ -1,11 +1,11 @@
 # DY Monitor Project Status
 
-## 2026-07-10 - web-v2.1.1 metric-empty batch quality gate
+## 2026-07-10 - web-v2.1.2 / plugin-v4.4.1 latest metric capture fix
 
-- Fixed ranking detail display when a category's latest API batch had products and videos but no payment/click/order metrics.
-- Non-DOM API batches now need useful metric coverage before they can be treated as trusted ranking data.
-- Ranking detail skips metric-empty batches and falls back to the latest trusted batch with valid metrics.
-- New metric-empty API uploads are rejected with a clear server error to avoid polluting latest ranking data.
+- Reverted the rejected metric-empty trusted-batch gate from `web-v2.1.1`; ranking detail no longer falls back to an older batch just because the newest batch is metric-empty.
+- Fixed the latest capture path for secondary categories whose direct category API returns products/videos but no payment/click/order metrics.
+- Direct category API capture now requires core metric coverage; if the category API is metric-empty, the extension switches back to the page ranking path so visible table metrics can be merged into the latest capture.
+- Kept the server memory hardening from `web-v2.1.0` and the 20-page category capture behavior.
 
 ## 2026-07-10 - web-v2.1.0 ranking memory hardening
 

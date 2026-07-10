@@ -1079,6 +1079,15 @@
       .filter((row) => row.productName || row.productId || row.videoTitle);
   }
 
+  function metricRowCount(rows) {
+    return (rows || []).filter((row) => row.paymentRange || row.clickRange || row.orderRange).length;
+  }
+
+  function hasEnoughMetrics(rows) {
+    if (!rows?.length) return false;
+    return metricRowCount(rows) >= Math.min(3, rows.length);
+  }
+
   function visibleTableRows() {
     const rowSelectors = "tr[data-row-key],.ant-table-row,[class*='table'] tbody tr,table tbody tr";
     return Array.from(document.querySelectorAll(rowSelectors))
@@ -1309,6 +1318,31 @@
         debug.push({ page, ok: false, count: 0, api: "", directCategoryApi: true, error: error.message || String(error) });
         continue;
       }
+      if (rows.length && !hasEnoughMetrics(rows)) {
+        debug.push({
+          page,
+          ok: false,
+          count: rows.length,
+          currentPage: page,
+          api: candidate?.url || "",
+          apiCandidateCount: 1,
+          latestApi: candidate?.url || "",
+          latestApiLength: candidate?.responseText?.length || 0,
+          directCategoryApi: true,
+          status: candidate?.status || 0,
+          missingMetrics: true
+        });
+        runtime.state.latestCaptureDiagnostics = {
+          captureMode: "api-category-v1-missing-metrics",
+          recordCount: 0,
+          successfulPages: 0,
+          pageLimit,
+          latestPage: page,
+          latestApi: candidate?.url || "",
+          debug
+        };
+        return null;
+      }
       records.push(...rows);
       debug.push({
         page,
@@ -1353,6 +1387,9 @@
     const rows = rowsFromCandidate(candidate, meta, 1);
     if (!rows.length) {
       return { ok: false, message: "\u63a5\u53e3\u5207\u6362\u7c7b\u76ee\u672a\u8fd4\u56de\u699c\u5355\u6570\u636e" };
+    }
+    if (!hasEnoughMetrics(rows)) {
+      return { ok: false, message: "\u63a5\u53e3\u5207\u6362\u7c7b\u76ee\u7f3a\u5c11\u652f\u4ed8/\u70b9\u51fb/\u6210\u4ea4\u6307\u6807\uff0c\u6539\u7528\u9875\u9762\u5207\u6362" };
     }
     runtime.state.activeCategoryApiMeta = { ...meta, appliedAt: Date.now() };
     return {

@@ -346,15 +346,6 @@ function isSuspiciousRankingQuality(records) {
   return false;
 }
 
-function hasUsefulMetricRecords(records) {
-  const quality = getRecordQuality(records);
-  const metricRows = Math.max(quality.withPaymentRange, quality.withClickRange, quality.withOrderRange);
-  if (quality.total >= 80) {
-    return metricRows >= Math.min(20, Math.ceil(quality.total * 0.1));
-  }
-  return metricRows > 0;
-}
-
 function isDomFallbackBatch(batch) {
   return String(batch?.captureFallbackMode || "") === "dom" || Number(batch?.domFallbackPages || 0) > 0;
 }
@@ -363,9 +354,6 @@ function hasMeaningfulVideoRecords(store, batchId) {
   const batch = store.captureBatches.find((entry) => entry.id === batchId);
   const records = getBatchRecords(store, batchId);
   if (!isDomFallbackBatch(batch) && isSuspiciousRankingQuality(records)) {
-    return false;
-  }
-  if (!isDomFallbackBatch(batch) && !hasUsefulMetricRecords(records)) {
     return false;
   }
 
@@ -399,7 +387,6 @@ function getLatestTrustedBatchesFast(categoryId, limit = 2) {
     if (
       records.some((record) => Number(record.rank) === 1) &&
       (isDomFallbackBatch(batch) || !isSuspiciousRankingQuality(records)) &&
-      (isDomFallbackBatch(batch) || hasUsefulMetricRecords(records)) &&
       (
         isDomFallbackBatch(batch) ||
         records.filter((record) => record.videoTitle || record.videoPublishedAt || record.videoCountRange).length >= 3
@@ -420,7 +407,6 @@ function isTrustedBatchWithRecords(batch, records) {
   return (
     records.some((record) => Number(record.rank) === 1) &&
     (isDomFallbackBatch(batch) || !isSuspiciousRankingQuality(records)) &&
-    (isDomFallbackBatch(batch) || hasUsefulMetricRecords(records)) &&
     (
       isDomFallbackBatch(batch) ||
       records.filter((record) => record.videoTitle || record.videoPublishedAt || record.videoCountRange).length >= 3
@@ -662,14 +648,6 @@ export function saveCapture(payload) {
   if (pageLimit >= 10 && !isDomFallbackBatch(batch) && isSuspiciousRankingQuality(normalized)) {
     const error = new Error(
       "采集结果疑似不是短视频榜单数据，已拒绝写入。请刷新罗盘页面，确认停留在短视频榜 / 实时数据后重试。"
-    );
-    error.statusCode = 422;
-    throw error;
-  }
-
-  if (pageLimit >= 10 && !isDomFallbackBatch(batch) && !hasUsefulMetricRecords(normalized)) {
-    const error = new Error(
-      "采集结果缺少支付/点击/成交指标，已拒绝写入。请确认当前类目已加载完整榜单数据后重试。"
     );
     error.statusCode = 422;
     throw error;
