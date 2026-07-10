@@ -1,5 +1,13 @@
 # DY Monitor Project Status
 
+## 2026-07-10 - web-v1.9.20 ranking detail 502 hotfix
+
+- Fixed the ranking detail page backend path that could overload the server and trigger intermittent `502 Bad Gateway` when opening the web detail page.
+- Root cause: normal `all` / `changed` ranking detail requests still computed the expensive "today first listed" baseline summary, scanning many trusted batches and recent records even when the page was not showing the today-new view.
+- `getRankingRowsPage` now skips today-first-listed summary work for normal paged detail views; the dedicated today-new view still uses its own path.
+- Reduced today-new scan limits to keep the special view bounded while preserving plugin capture behavior.
+- Plugin baseline `plugin-v4.4.0` is unchanged.
+
 ## 2026-07-03 - plugin-v4.4.0 Compass category catalog + API category capture
 
 - Status confirmed by L on 2026-07-04: this version works end-to-end and should be preserved as the stable baseline.

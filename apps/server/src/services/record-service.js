@@ -32,6 +32,13 @@ import {
 const SHORT_VIDEO_RANKING = "\u77ed\u89c6\u9891\u699c";
 const todayFirstListedCache = new Map();
 const serviceStartedAt = getNowIso();
+const EMPTY_TODAY_FIRST_LISTED_SUMMARY = {
+  baselineBatch: null,
+  latestBatch: null,
+  batchCount: 0,
+  firstByKey: new Map(),
+  keySet: new Set()
+};
 
 function isObjectPlaceholderText(value) {
   return String(value || "").replace(/\s+/g, "").toLowerCase() === "[objectobject]";
@@ -407,7 +414,7 @@ function isTrustedBatchWithRecords(batch, records) {
   );
 }
 
-function getTodayTrustedBatchEntries(categoryId, limit = 300, todayStartIso = getChinaTodayStartIso()) {
+function getTodayTrustedBatchEntries(categoryId, limit = 80, todayStartIso = getChinaTodayStartIso()) {
   const candidates = readBatchesByCategory(categoryId, limit)
     .filter(isTrustedBatch)
     .filter((batch) => isAtOrAfterIso(batch.capturedAt, todayStartIso))
@@ -455,7 +462,7 @@ function getTodayFirstListedSummary(categoryId) {
     return cached;
   }
 
-  const entries = getTodayTrustedBatchEntries(categoryId, 300, todayStartIso);
+  const entries = getTodayTrustedBatchEntries(categoryId, 80, todayStartIso);
   const baselineEntry = entries[0] || null;
   const baselineKeys = new Set((baselineEntry?.records || []).map((record) => makeTodayFirstListedKey(record)));
   const firstByKey = new Map();
@@ -500,7 +507,7 @@ function getTodayFirstListedRows(user, categoryId) {
     return [];
   }
 
-  const todayRecords = readRecentRecordsByCategory(categoryId, 6000)
+  const todayRecords = readRecentRecordsByCategory(categoryId, 2000)
     .filter((record) => isShortVideoRanking(record.rankingType))
     .filter((record) => record.productName || record.videoTitle)
     .filter((record) => !isHeaderLikeRecord(record));
@@ -1202,7 +1209,9 @@ export function getRankingRows(user, filters = {}) {
           .map((record) => backfillRecordForDisplay(record, backfillIndex))
       : [];
     const previousByKey = new Map(previousBatchRecords.map((record) => [makeRecordKey(record), record]));
-    const todayFirstListedSummary = getTodayFirstListedSummary(filters.categoryId);
+    const todayFirstListedSummary = filters.includeTodayFirstListed
+      ? getTodayFirstListedSummary(filters.categoryId)
+      : EMPTY_TODAY_FIRST_LISTED_SUMMARY;
 
     if (!currentBatchId) {
       return [];
@@ -1240,7 +1249,9 @@ export function getRankingRows(user, filters = {}) {
         .map((record) => backfillRecordForDisplay(record, backfillIndex))
     : [];
   const previousByKey = new Map(previousBatchRecords.map((record) => [makeRecordKey(record), record]));
-  const todayFirstListedSummary = filters.categoryId ? getTodayFirstListedSummary(filters.categoryId) : null;
+  const todayFirstListedSummary = filters.categoryId && filters.includeTodayFirstListed
+    ? getTodayFirstListedSummary(filters.categoryId)
+    : null;
 
   if (currentBatchId) {
     const rawRows = records
@@ -1384,7 +1395,10 @@ export function getRankingRowsPage(user, filters = {}) {
     return paginateItems(getTodayFirstListedRows(user, filters.categoryId), filters);
   }
 
-  const rows = getRankingRows(user, filters);
+  const rows = getRankingRows(user, {
+    ...filters,
+    includeTodayFirstListed: false
+  });
   const filteredRows = viewMode === "changed"
     ? rows.filter(hasVisibleDiffItems)
     : rows;
