@@ -1,5 +1,5 @@
 window.DY_MONITOR_CONFIG = {
-  version: "plugin-v4.5.9",
+  version: "plugin-v4.6.0",
   apiBaseUrl: "http://localhost:4318/api",
   extensionToken: "dy-monitor-extension-token",
   appUrl: "http://localhost:4318",

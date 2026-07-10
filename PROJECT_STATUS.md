@@ -1,5 +1,12 @@
 # DY Monitor Project Status
 
+## 2026-07-11 - plugin-v4.6.0 targets the current cascader event rows
+
+- Current Compass bundle inspection confirmed each cascader column is a visible `ul[role="menu"]` and each event-bound row is a direct `li[role="menuitemcheckbox"][data-path-key]` child.
+- Replaced the obsolete Ecom class, `role="option"`, `data-level`, generic `li`, and broad menu-wrapper selectors in the category-switch path.
+- First-level, second-level, same-name category, and terminal `All` selection now resolve the exact row that owns the current component's click handler.
+- Kept the existing click event sequence, waits, final visible category confirmation, capture, pagination, and upload safeguards unchanged.
+
 ## 2026-07-11 - plugin-v4.5.9 restores the last stable UI node priority
 
 - Historical review confirmed `plugin-v4.3.1` was only partially successful and must not be used as the stable category-switch baseline.
