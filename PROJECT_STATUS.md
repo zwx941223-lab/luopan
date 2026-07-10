@@ -1,5 +1,12 @@
 # DY Monitor Project Status
 
+## 2026-07-11 - plugin-v4.5.7 restores the v4.3.1 category click path
+
+- Live `plugin-v4.5.6` status confirmed that only the already selected default category could succeed; every real page-state transition failed.
+- Removed the experimental React private-property bridge introduced in `plugin-v4.5.1` through `plugin-v4.5.6`.
+- Restored `plugin-v4.3.1` category interaction: `fullClick()` for first-level, second-level, and terminal `全部`, followed by the original per-level waits and final visible category confirmation.
+- Kept the later dynamic category catalog, real 20-page capture, metric merging, and upload integrity guard unchanged.
+
 ## 2026-07-11 - plugin-v4.5.6 accepts existing expansion and resolves nested handlers
 
 - Live `plugin-v4.5.5` evidence showed the first default category failing before collection, with `0` successes and `1` failure.

@@ -416,39 +416,6 @@
     return nodes;
   }
 
-  function componentMenuSelect(node, interaction) {
-    const menuItem = node?.matches?.(".ecom-cascader-menu-item,[class*='menu-item'],[role='option'],[role='menuitem']")
-      ? node
-      : node?.querySelector?.(".ecom-cascader-menu-item,[class*='menu-item'],[role='option'],[role='menuitem']") || node;
-    if (!menuItem) return Promise.resolve({ ok: false, message: "\u672a\u627e\u5230\u83dc\u5355\u9009\u62e9\u76ee\u6807" });
-    const requestId = `category-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    return new Promise((resolve) => {
-      const timeout = window.setTimeout(() => {
-        window.removeEventListener("dy-monitor:component-menu-selected", onResult);
-        resolve({ ok: false, message: "\u7f51\u9875\u7c7b\u76ee\u7ec4\u4ef6\u672a\u54cd\u5e94" });
-      }, 2000);
-      const onResult = (event) => {
-        let result = null;
-        try {
-          result = JSON.parse(String(event?.detail || ""));
-        } catch {
-          return;
-        }
-        if (result?.requestId !== requestId) return;
-        window.clearTimeout(timeout);
-        window.removeEventListener("dy-monitor:component-menu-selected", onResult);
-        resolve({ ok: Boolean(result.ok), message: String(result.message || "") });
-      };
-      window.addEventListener("dy-monitor:component-menu-selected", onResult);
-      menuItem.dispatchEvent(
-        new CustomEvent("dy-monitor:component-menu-select", {
-          bubbles: true,
-          detail: JSON.stringify({ requestId, interaction })
-        })
-      );
-    });
-  }
-
   function oldStyleMenuItem(level, name, forceColumn = false) {
     const menus = menuColumns();
     const menu = menus[level];
@@ -472,42 +439,6 @@
 
     if (!menu) return null;
     return findInMenu(menu);
-  }
-
-  function menuItemSelected(node) {
-    if (!node) return false;
-    const ariaSelected = String(node.getAttribute?.("aria-selected") || "").toLowerCase();
-    const ariaChecked = String(node.getAttribute?.("aria-checked") || "").toLowerCase();
-    if (ariaSelected === "true" || ariaChecked === "true") return true;
-    const signature = `${node.className || ""} ${node.parentElement?.className || ""}`.toLowerCase();
-    return /(^|[\s_-])(active|selected|checked)([\s_-]|$)/.test(signature);
-  }
-
-  function menuColumnSignature(column) {
-    if (!column) return "";
-    return menuItemNodes(column)
-      .map((item) => `${text(item)}|${item.className || ""}|${item.getAttribute?.("aria-selected") || ""}`)
-      .join("\n");
-  }
-
-  function menuExpansionAlreadyApplied(level, node, expectedNextName) {
-    if (menuItemSelected(node)) return true;
-    if (level !== 0) return false;
-    const downstream = menuColumns()[1] || null;
-    return Boolean(downstream && oldStyleMenuItem(1, expectedNextName, true));
-  }
-
-  async function waitForMenuExpansion(level, node, downstreamBefore, signatureBefore, expectedNextName, timeoutMs = 2600) {
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      const downstream = menuColumns()[level + 1] || null;
-      if (level === 0 && downstream && oldStyleMenuItem(1, expectedNextName, true)) return true;
-      if (menuItemSelected(node)) return true;
-      if (downstream && downstream !== downstreamBefore) return true;
-      if (downstream && menuColumnSignature(downstream) !== signatureBefore) return true;
-      await sleep(120);
-    }
-    return false;
   }
 
   function sameNameNextColumnItem(name, previousRect) {
@@ -578,24 +509,9 @@
           : oldStyleMenuItem(level, name);
         if (node) {
           previousRect = node.getBoundingClientRect();
-          const expectedNextName = path[level + 1] || "\u5168\u90e8";
-          if (menuExpansionAlreadyApplied(level, node, expectedNextName)) {
-            found = true;
-            break;
-          }
-          const downstreamBefore = menuColumns()[level + 1] || null;
-          const signatureBefore = menuColumnSignature(downstreamBefore);
-          node.scrollIntoView?.({ block: "center", inline: "nearest" });
-          await sleep(180);
-          const expanded = await componentMenuSelect(node, "expand");
-          if (!expanded.ok) continue;
-          found = await waitForMenuExpansion(
-            level,
-            node,
-            downstreamBefore,
-            signatureBefore,
-            expectedNextName
-          );
+          fullClick(node);
+          found = true;
+          break;
         }
       }
       if (!found) {
@@ -614,23 +530,22 @@
         const items = menuItemNodes(menus[index]);
         const allItem = items.find((item) => compact(text(item)) === compact("\u5168\u90e8"));
         if (allItem) {
-          allItem.scrollIntoView?.({ block: "center", inline: "nearest" });
-          await sleep(180);
-          const selected = await componentMenuSelect(allItem, "select");
-          if (!selected.ok) continue;
-          if (await waitForCategoryLabel(level1, level2, 2400)) {
-            allClicked = true;
-            break;
-          }
+          fullClick(allItem);
+          await sleep(2000);
+          allClicked = true;
+          break;
         }
       }
     }
     if (!allClicked) {
-      return { ok: false, message: "\u7c7b\u76ee\u672b\u7ea7\u9009\u62e9\u5c1a\u672a\u751f\u6548" };
+      document.body.click();
+      await sleep(1000);
     }
+    await sleep(2000);
+    const ok = await waitForCategoryLabel(level1, level2, 2400);
     return {
-      ok: true,
-      message: "\u7c7b\u76ee\u5207\u6362\u6210\u529f"
+      ok,
+      message: ok ? "\u7c7b\u76ee\u5207\u6362\u6210\u529f" : "\u7c7b\u76ee\u5c1a\u672a\u751f\u6548"
     };
   }
 
