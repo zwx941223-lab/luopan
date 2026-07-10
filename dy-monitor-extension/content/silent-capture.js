@@ -613,7 +613,6 @@
     runtime.state.apiCandidates = [];
     runtime.state.latestApiRequest = null;
     runtime.state.latestApiCapturedAt = 0;
-    runtime.state.activeCategoryApiMeta = null;
 
     await ensureTopButton(LABELS.ranking, 450);
     await ensureTopButton(LABELS.realtime, 450);
@@ -640,24 +639,12 @@
       await sleep(500);
     }
 
-    const apiSwitch = await switchByCategoryApi(category, level1, level2).catch((error) => ({
-      ok: false,
-      message: error.message || String(error)
-    }));
-    if (apiSwitch.ok) {
-      return {
-        ...apiSwitch,
-        message: "\u9875\u9762\u7c7b\u76ee\u5207\u6362\u5931\u8d25\uff0c\u5df2\u6539\u7528\u7c7b\u76ee\u63a5\u53e3\u91c7\u96c6"
-      };
-    }
-
     const actual = currentCategoryLabel() || "-";
     runtime.state.latestCategoryDebug = {
       stage: "switch-not-applied-after-retry",
       target: `${level1}/${level2}`,
       actual,
       lastMessage: last?.message || "",
-      apiMessage: apiSwitch.message || "",
       columns: menuColumns().map(text)
     };
     return { ok: false, message: `\u7c7b\u76ee\u672a\u5207\u6362\u6210\u529f\uff1a\u76ee\u6807 ${level1}/${level2}\uff0c\u5b9e\u9645 ${actual}` };
@@ -1340,143 +1327,6 @@
     };
   }
 
-  function latestRankTemplate() {
-    return runtime.state.latestRankApiTemplate ||
-      (runtime.state.apiCandidates || [])
-        .filter((item) => item?.url && isProductRankApiUrl(item.url))
-        .sort((a, b) => Number(b.capturedAt || 0) - Number(a.capturedAt || 0))[0] ||
-      null;
-  }
-
-  function urlFromTemplate(template) {
-    try {
-      return new URL(template?.url || "", location.origin);
-    } catch {
-      return null;
-    }
-  }
-
-  function setKnownParam(params, names, value) {
-    if (value == null || value === "") return false;
-    let changed = false;
-    names.forEach((name) => {
-      if (params.has(name)) {
-        params.set(name, String(value));
-        changed = true;
-      }
-    });
-    if (!changed && names[0]) {
-      params.set(names[0], String(value));
-      changed = true;
-    }
-    return changed;
-  }
-
-  function categoryApiUrl(template, meta, page) {
-    const url = urlFromTemplate(template);
-    if (!url || !meta.categoryId) return "";
-    const params = url.searchParams;
-    setKnownParam(params, ["category_id", "categoryId", "cate_id", "cateId", "second_cate_id", "secondCateId"], meta.categoryId);
-    if (meta.industryId) {
-      setKnownParam(params, ["industry_id", "industryId", "first_cate_id", "firstCateId"], meta.industryId);
-    }
-    setKnownParam(params, ["page_no", "pageNo", "page", "current"], page);
-    setKnownParam(params, ["page_size", "pageSize", "limit"], 10);
-    return url.toString();
-  }
-
-  async function fetchCategoryPage(meta, page) {
-    const template = latestRankTemplate();
-    const url = categoryApiUrl(template, meta, page);
-    if (!url) return null;
-    const response = await fetch(url, {
-      method: "GET",
-      credentials: "include",
-      headers: { accept: "application/json, text/plain, */*" }
-    });
-    const candidate = {
-      url,
-      method: "GET",
-      headers: {},
-      bodyText: "",
-      responseText: await response.text(),
-      source: "category-api",
-      capturedAt: Date.now(),
-      status: response.status
-    };
-    runtime.state.latestApiRequest = candidate;
-    runtime.state.latestApiCapturedAt = candidate.capturedAt;
-    runtime.state.apiCandidates = [candidate, ...(runtime.state.apiCandidates || [])].slice(0, 50);
-    return candidate;
-  }
-
-  async function captureByCategoryApi(meta, pageLimit) {
-    if (!latestRankTemplate() || !meta.categoryId) return null;
-    const records = [];
-    const debug = [];
-    for (let page = 1; page <= pageLimit; page += 1) {
-      let candidate = null;
-      let rows = [];
-      try {
-        candidate = await fetchCategoryPage(meta, page);
-        rows = rowsFromCandidate(candidate, meta, page);
-      } catch (error) {
-        debug.push({ page, ok: false, count: 0, api: "", directCategoryApi: true, error: error.message || String(error) });
-        continue;
-      }
-      records.push(...rows);
-      debug.push({
-        page,
-        ok: Boolean(rows.length),
-        count: rows.length,
-        currentPage: page,
-        api: candidate?.url || "",
-        apiCandidateCount: 1,
-        latestApi: candidate?.url || "",
-        latestApiLength: candidate?.responseText?.length || 0,
-        directCategoryApi: true,
-        status: candidate?.status || 0
-      });
-      runtime.state.latestCaptureDiagnostics = {
-        captureMode: "api-category-v1",
-        recordCount: records.length,
-        successfulPages: debug.filter((item) => item.count > 0).length,
-        pageLimit,
-        latestPage: page,
-        latestApi: candidate?.url || "",
-        debug
-      };
-      await sleep(180);
-    }
-    return {
-      records,
-      debug,
-      successfulPages: debug.filter((item) => item.count > 0).length,
-      detectedCategory: meta
-    };
-  }
-
-  async function switchByCategoryApi(category, level1, level2) {
-    const meta = {
-      categoryId: category.categoryId || category.id || "",
-      categoryName: category.categoryName || category.name || `${level1}/${level2}`,
-      level1,
-      level2,
-      industryId: category.industryId || ""
-    };
-    const candidate = await fetchCategoryPage(meta, 1);
-    const rows = rowsFromCandidate(candidate, meta, 1);
-    if (!rows.length) {
-      return { ok: false, message: "\u63a5\u53e3\u5207\u6362\u7c7b\u76ee\u672a\u8fd4\u56de\u699c\u5355\u6570\u636e" };
-    }
-    runtime.state.activeCategoryApiMeta = { ...meta, appliedAt: Date.now() };
-    return {
-      ok: true,
-      detected: { categoryId: meta.categoryId, categoryName: meta.categoryName },
-      message: "\u63a5\u53e3\u5207\u6362\u7c7b\u76ee\u6210\u529f"
-    };
-  }
-
   async function waitForApiRows(meta, page, after, timeoutMs = 10000) {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
@@ -1494,17 +1344,6 @@
       categoryName: meta.categoryName || currentCategoryLabel() || "",
       industryId: meta.industryId || ""
     };
-    const activeApiMeta = runtime.state.activeCategoryApiMeta || null;
-    if (
-      activeApiMeta &&
-      activeApiMeta.categoryId === resolvedMeta.categoryId &&
-      Date.now() - Number(activeApiMeta.appliedAt || 0) < 5 * 60 * 1000
-    ) {
-      const apiResult = await captureByCategoryApi({ ...resolvedMeta, industryId: activeApiMeta.industryId || resolvedMeta.industryId }, pageLimit);
-      if (apiResult?.records?.length) {
-        return apiResult;
-      }
-    }
     const records = [];
     const debug = [];
 

@@ -10,7 +10,6 @@
       latestCaptureDiagnostics: null,
       latestApiRequest: null,
       latestApiCapturedAt: 0,
-      latestRankApiTemplate: null,
       dynamicCategories: [],
       apiCandidates: []
     },
@@ -34,9 +33,6 @@
     runtime.state.latestApiRequest = item;
     runtime.state.latestApiCapturedAt = item.capturedAt;
     runtime.state.apiCandidates = [item, ...(runtime.state.apiCandidates || [])].slice(0, 50);
-    if (/\/shop\/product\/product_rank\//i.test(item.url)) {
-      runtime.state.latestRankApiTemplate = item;
-    }
     window.setTimeout(() => runtime.silentCapture?.syncCategoryCatalog?.(), 0);
   });
 

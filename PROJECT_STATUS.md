@@ -1,5 +1,13 @@
 # DY Monitor Project Status
 
+## 2026-07-10 - plugin-v4.4.8 catalog-only API + real page capture
+
+- Combined the `plugin-v4.3.1` real page-switch/page-pagination model with the `plugin-v4.4.0` live category catalog.
+- Category/industry APIs are now used only to discover the current Compass category tree and IDs for the extension panel.
+- Removed direct ranking capture by rewritten category IDs, direct API category-switch success, active API capture state, and ranking request-template replay.
+- Every category must now visibly switch in Compass, confirm the target label, and generate its own ranking requests through real page refreshes and pagination clicks.
+- Kept the strengthened secondary cascader activation, 20-page pagination, parallel metric-array merge, and empty-metric upload guard.
+
 ## 2026-07-10 - plugin-v4.4.7 verifies secondary cascader activation
 
 - Fixed the visible cascader staying on the first secondary category after attempting to select the second option.
