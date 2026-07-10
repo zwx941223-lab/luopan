@@ -1,5 +1,12 @@
 # DY Monitor Project Status
 
+## 2026-07-10 - plugin-v4.4.11 clicks the actual hit-tested menu element
+
+- Fixed category text lookup finding the correct menu row while `fullClick()` still targeted a wrapper instead of the element a real mouse click would hit.
+- Secondary category and `全部` clicks now calculate the live row geometry and use `document.elementFromPoint()` to target the topmost child under the row center.
+- The hit target must remain inside the identified menu row; otherwise the original row is used, so this does not depend on fixed screen coordinates.
+- Kept the `plugin-v4.3.1` full click chain, catalog-only API usage, real page capture, 20-page pagination, metric merging, and empty-metric upload guard.
+
 ## 2026-07-10 - plugin-v4.4.10 restores v4.3.1 full-click behavior
 
 - Kept `plugin-v4.4.9` real cascader item priority while restoring the proven `plugin-v4.3.1` `fullClick()` event chain for level-1, level-2, and `全部` selections.

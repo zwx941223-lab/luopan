@@ -426,6 +426,21 @@
     return nodes;
   }
 
+  function menuItemHitTarget(node) {
+    if (!node) return null;
+    const rect = node.getBoundingClientRect();
+    const points = [
+      [rect.left + rect.width * 0.5, rect.top + rect.height * 0.5],
+      [rect.left + Math.min(24, rect.width * 0.25), rect.top + rect.height * 0.5],
+      [rect.right - Math.min(24, rect.width * 0.25), rect.top + rect.height * 0.5]
+    ];
+    for (const [x, y] of points) {
+      const hit = document.elementFromPoint?.(Math.round(x), Math.round(y));
+      if (hit && (node === hit || node.contains?.(hit))) return hit;
+    }
+    return node;
+  }
+
   function oldStyleMenuItem(level, name, forceColumn = false) {
     const menus = menuColumns();
     const menu = menus[level];
@@ -530,7 +545,7 @@
           previousRect = node.getBoundingClientRect();
           node.scrollIntoView?.({ block: "center", inline: "nearest" });
           await sleep(180);
-          fullClick(node);
+          fullClick(menuItemHitTarget(node));
           found = true;
           break;
         }
@@ -551,7 +566,9 @@
         const items = menuItemNodes(menus[index]);
         const allItem = items.find((item) => compact(text(item)) === compact("\u5168\u90e8"));
         if (allItem) {
-          fullClick(allItem);
+          allItem.scrollIntoView?.({ block: "center", inline: "nearest" });
+          await sleep(180);
+          fullClick(menuItemHitTarget(allItem));
           await sleep(2000);
           allClicked = true;
           break;
