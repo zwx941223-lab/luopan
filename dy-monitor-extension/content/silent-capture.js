@@ -1069,14 +1069,72 @@
     };
   }
 
+  function metricPatch(item, page, index) {
+    const explicitRank = numberByKeysDeep(item, ["rank", "ranking", "rankNo", "rank_no", "rankValue", "rank_value"]);
+    return {
+      productId: getByKeysDeep(item, ["productId", "product_id", "goodsId", "goods_id", "itemId", "item_id"]),
+      rank: explicitRank ? normalizeRank(explicitRank, page, index) : 0,
+      paymentRange: rangeByFragments(item, ["pay", "payment", "gmv", "amount", "\u652f\u4ed8", "\u91d1\u989d"]),
+      clickRange: rangeByFragments(item, ["click", "pv", "\u70b9\u51fb"]),
+      orderRange: rangeByFragments(item, ["order", "deal", "sale", "\u6210\u4ea4", "\u4ef6\u6570"])
+    };
+  }
+
+  function hasMetricPatch(patch) {
+    return Boolean(patch?.paymentRange || patch?.clickRange || patch?.orderRange);
+  }
+
+  function mergeResponseMetrics(rows, payload, page) {
+    if (!rows.length || !payload) return rows;
+    const byProductId = new Map();
+    const byRank = new Map();
+    const positional = [];
+
+    objectValuesDeep(payload, (value) => {
+      if (!Array.isArray(value) || value.length < 3) return;
+      const objects = value.filter((item) => item && typeof item === "object" && !Array.isArray(item)).slice(0, 10);
+      if (objects.length < 3) return;
+      const patches = objects.map((item, index) => metricPatch(item, page, index));
+      const metricPatches = patches.filter(hasMetricPatch);
+      if (metricPatches.length < Math.min(3, patches.length)) return;
+
+      metricPatches.forEach((patch) => {
+        if (patch.productId && !byProductId.has(patch.productId)) byProductId.set(patch.productId, patch);
+        if (patch.rank && !byRank.has(patch.rank)) byRank.set(patch.rank, patch);
+      });
+      if (
+        patches.length === rows.length &&
+        patches.filter((patch) => [patch.paymentRange, patch.clickRange, patch.orderRange].filter(Boolean).length >= 2).length >= Math.min(3, patches.length)
+      ) {
+        positional.push(patches);
+      }
+    });
+
+    return rows.map((row, index) => {
+      const candidates = [
+        row.productId ? byProductId.get(row.productId) : null,
+        row.rank ? byRank.get(row.rank) : null,
+        ...positional.map((patches) => patches[index])
+      ].filter(Boolean);
+      if (!candidates.length) return row;
+      return candidates.reduce((merged, patch) => ({
+        ...merged,
+        paymentRange: merged.paymentRange || patch.paymentRange || "",
+        clickRange: merged.clickRange || patch.clickRange || "",
+        orderRange: merged.orderRange || patch.orderRange || ""
+      }), row);
+    });
+  }
+
   function rowsFromCandidate(candidate, meta, page) {
     const payload = parseJson(candidate?.responseText || "");
     const best = findRankingArrays(payload, candidate?.url || "")[0];
     if (!best) return [];
-    return best.rows
+    const rows = best.rows
       .slice(0, 10)
       .map((item, index) => normalizeApiRow(item, meta, page, index))
       .filter((row) => row.productName || row.productId || row.videoTitle);
+    return mergeResponseMetrics(rows, payload, page);
   }
 
   function visibleTableRows() {

@@ -233,6 +233,10 @@
       pageLimit: runtime.config.pageLimit || 10
     });
     if (!result.records.length) throw new Error(`${t.noData}（${noDataDetails()}）`);
+    const metricRows = result.records.filter((row) => row.paymentRange || row.clickRange || row.orderRange).length;
+    if (metricRows < Math.min(3, result.records.length)) {
+      throw new Error("\u91c7\u96c6\u7ed3\u679c\u7f3a\u5c11\u652f\u4ed8/\u70b9\u51fb/\u6210\u4ea4\u6307\u6807\uff0c\u5df2\u963b\u6b62\u4e0a\u4f20");
+    }
     const collectMs = Math.round(performance.now() - collectStartedAt);
     const domFallbackPages = (result.debug || []).filter((item) => item.api === "dom-fallback").length;
 

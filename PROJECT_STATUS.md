@@ -1,5 +1,13 @@
 # DY Monitor Project Status
 
+## 2026-07-10 - plugin-v4.4.5 merges parallel metric arrays
+
+- Kept the preserved `plugin-v4.4.0` category switching, API request, and 20-page pagination behavior.
+- Fixed response parsing that previously selected only the highest-scoring ranking array and discarded parallel arrays carrying payment/click/order ranges.
+- Metric arrays are now merged into product rows by product ID, explicit rank, or a guarded same-length positional match.
+- Added an upload integrity gate so a category with fewer than three metric-bearing rows cannot replace the latest batch with empty indicators.
+- No web display, server batch selection, category switching, or request parameter logic changed.
+
 ## 2026-07-10 - plugin-v4.4.4 restores plugin-v4.4.0 capture behavior
 
 - Restored `dy-monitor-extension/content/silent-capture.js` exactly to the preserved `plugin-v4.4.0-stable` tag.
