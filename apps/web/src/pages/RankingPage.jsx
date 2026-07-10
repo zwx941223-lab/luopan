@@ -42,11 +42,23 @@ export function RankingPage() {
   const activeCategory = categoryOptions.find((item) => item.id === effectiveCategoryId);
   const refreshKey = searchParams.get("refresh") || "";
   const records = useDashboardData(
-    (authToken) => fetchRankingRows(authToken, effectiveCategoryId, refreshKey, {
-      viewMode,
-      page,
-      pageSize: PAGE_SIZE
-    }),
+    (authToken) => {
+      if (!effectiveCategoryId) {
+        return Promise.resolve({
+          items: [],
+          total: 0,
+          page: 1,
+          pageSize: PAGE_SIZE,
+          totalPages: 1
+        });
+      }
+
+      return fetchRankingRows(authToken, effectiveCategoryId, refreshKey, {
+        viewMode,
+        page,
+        pageSize: PAGE_SIZE
+      });
+    },
     [effectiveCategoryId, refreshKey, viewMode, page]
   );
   const payload = records.data || {};

@@ -783,6 +783,8 @@ export function getVisibleRecords(user, filters = {}) {
       .sort((left, right) => left.rank - right.rank);
   }
 
+  return [];
+
   const store = readStore();
   let records = store.records
     .filter((record) => allowedCategoryIds.has(String(record.categoryId || "")))
@@ -1248,6 +1250,8 @@ export function getRankingRows(user, filters = {}) {
       });
     return rawRows;
   }
+
+  return [];
 
   const records = getVisibleRecords(user, filters);
   const store = readStore();

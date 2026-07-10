@@ -1,5 +1,12 @@
 # DY Monitor Project Status
 
+## 2026-07-10 - web-v2.1.0 ranking memory hardening
+
+- Combined the remaining ranking-detail memory hardening work into one release.
+- The ranking detail page now waits for the default category before requesting ranking rows, avoiding the initial empty-category request.
+- Ranking record service now returns an empty result for unscoped record/ranking fallbacks instead of allowing legacy all-record `readStore()` paths to execute.
+- Opening ranking detail still defaults to the first visible category with data and keeps the existing all / changed / today-new views.
+
 ## 2026-07-10 - web-v1.9.22 ranking default category OOM hotfix
 
 - Fixed the ranking detail endpoint crash when the page requested rows without a `categoryId`.
