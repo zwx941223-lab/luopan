@@ -561,6 +561,7 @@
     runtime.state.apiCandidates = [];
     runtime.state.latestApiRequest = null;
     runtime.state.latestApiCapturedAt = 0;
+    runtime.state.activeCategoryApiMeta = null;
 
     await ensureTopButton(LABELS.ranking, 450);
     await ensureTopButton(LABELS.realtime, 450);
@@ -572,14 +573,6 @@
         detected: { categoryId: category.categoryId || category.id || "", categoryName: `${level1}/${level2}` },
         message: "\u5f53\u524d\u5df2\u662f\u76ee\u6807\u7c7b\u76ee"
       };
-    }
-
-    const apiSwitch = await switchByCategoryApi(category, level1, level2).catch((error) => ({
-      ok: false,
-      message: error.message || String(error)
-    }));
-    if (apiSwitch.ok) {
-      return apiSwitch;
     }
 
     let last = null;
@@ -595,12 +588,24 @@
       await sleep(500);
     }
 
+    const apiSwitch = await switchByCategoryApi(category, level1, level2).catch((error) => ({
+      ok: false,
+      message: error.message || String(error)
+    }));
+    if (apiSwitch.ok) {
+      return {
+        ...apiSwitch,
+        message: "\u9875\u9762\u7c7b\u76ee\u5207\u6362\u5931\u8d25\uff0c\u5df2\u6539\u7528\u7c7b\u76ee\u63a5\u53e3\u91c7\u96c6"
+      };
+    }
+
     const actual = currentCategoryLabel() || "-";
     runtime.state.latestCategoryDebug = {
       stage: "switch-not-applied-after-retry",
       target: `${level1}/${level2}`,
       actual,
       lastMessage: last?.message || "",
+      apiMessage: apiSwitch.message || "",
       columns: menuColumns().map(text)
     };
     return { ok: false, message: `\u7c7b\u76ee\u672a\u5207\u6362\u6210\u529f\uff1a\u76ee\u6807 ${level1}/${level2}\uff0c\u5b9e\u9645 ${actual}` };

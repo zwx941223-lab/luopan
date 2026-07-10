@@ -1,5 +1,12 @@
 # DY Monitor Project Status
 
+## 2026-07-10 - plugin-v4.4.6 switches the visible secondary category first
+
+- Fixed second-level categories after the first option not visibly switching on the Compass page.
+- Root cause: a successful direct API preflight returned before the real cascader switch ran, so the page remained on the first secondary category.
+- Category collection now clears stale API state, performs and confirms the visible page category switch first, and uses direct API capture only after three real switch attempts fail.
+- Kept the 20-page flow, parallel metric-array merge, and empty-metric upload guard unchanged.
+
 ## 2026-07-10 - plugin-v4.4.5 merges parallel metric arrays
 
 - Kept the preserved `plugin-v4.4.0` category switching, API request, and 20-page pagination behavior.
