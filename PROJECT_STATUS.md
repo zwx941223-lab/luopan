@@ -1,5 +1,12 @@
 # DY Monitor Project Status
 
+## 2026-07-10 - web-v2.1.1 metric-empty batch quality gate
+
+- Fixed ranking detail display when a category's latest API batch had products and videos but no payment/click/order metrics.
+- Non-DOM API batches now need useful metric coverage before they can be treated as trusted ranking data.
+- Ranking detail skips metric-empty batches and falls back to the latest trusted batch with valid metrics.
+- New metric-empty API uploads are rejected with a clear server error to avoid polluting latest ranking data.
+
 ## 2026-07-10 - web-v2.1.0 ranking memory hardening
 
 - Combined the remaining ranking-detail memory hardening work into one release.
