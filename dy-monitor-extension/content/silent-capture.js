@@ -395,21 +395,7 @@
       .sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
   }
 
-  function oldStyleMenuItem(level, name, forceColumn = false) {
-    const menus = menuColumns();
-    const menu = menus[level];
-    const findInMenu = (scope) => Array.from(scope.querySelectorAll(".ecom-cascader-menu-item,[class*='menu-item'],li,[role='option']"))
-      .filter(visible)
-      .find((item) => {
-        const value = text(item).trim();
-        return value === name || value.startsWith(`${name}\uFF08`) || value.startsWith(`${name}(`) || compact(value) === compact(name);
-      }) || null;
-
-    if (menu) {
-      const scoped = findInMenu(menu);
-      if (scoped || forceColumn) return scoped;
-    }
-
+  function oldStyleMenuItem(level, name) {
     const escaped = String(name || "").replace(/["\\]/g, "\\$&");
     const byTitle = document.querySelector(`.ecom-cascader-menu-item[title="${escaped}"]`);
     if (byTitle && visible(byTitle)) return byTitle;
@@ -417,8 +403,15 @@
     const byRole = document.querySelector(`body [role="option"][data-level="${level + 1}"][title="${escaped}"]`);
     if (byRole && visible(byRole)) return byRole;
 
+    const menus = menuColumns();
+    const menu = menus[level];
     if (!menu) return null;
-    return findInMenu(menu);
+    return Array.from(menu.querySelectorAll(".ecom-cascader-menu-item,[class*='menu-item'],li,[role='option']"))
+      .filter(visible)
+      .find((item) => {
+        const value = text(item).trim();
+        return value === name || value.startsWith(`${name}\uFF08`) || value.startsWith(`${name}(`) || compact(value) === compact(name);
+      }) || null;
   }
 
   function sameNameNextColumnItem(name, previousRect) {

@@ -1,5 +1,12 @@
 # DY Monitor Project Status
 
+## 2026-07-11 - plugin-v4.5.9 restores the last stable UI node priority
+
+- Historical review confirmed `plugin-v4.3.1` was only partially successful and must not be used as the stable category-switch baseline.
+- Restored the `plugin-v4.0.4` menu-item lookup order: exact item `title`, exact `role` and `data-level`, then column-scoped text matching.
+- Removed the `plugin-v4.1.7` scoped-container-first lookup that could treat nested cascader wrappers as stable column indexes.
+- Kept the existing click event chain, waits, terminal selection, capture, pagination, and upload safeguards unchanged.
+
 ## 2026-07-11 - plugin-v4.5.8 restores v4.3.1 menu-node selection
 
 - Live `plugin-v4.5.7` evidence showed the correct secondary row visible but not activated, while the third column remained on the default category.
