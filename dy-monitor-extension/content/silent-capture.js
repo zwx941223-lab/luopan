@@ -441,39 +441,35 @@
     return node;
   }
 
-  function componentEvent(target, currentTarget) {
-    return {
-      type: "click",
-      target,
-      currentTarget,
-      nativeEvent: { type: "click", target, currentTarget },
-      preventDefault() {},
-      stopPropagation() {},
-      persist() {},
-      isDefaultPrevented: () => false,
-      isPropagationStopped: () => false
-    };
-  }
-
-  async function componentMenuSelect(node) {
+  function componentMenuSelect(node) {
     const target = menuItemHitTarget(node);
-    if (!target) return { ok: false, message: "\u672a\u627e\u5230\u83dc\u5355\u9009\u62e9\u76ee\u6807" };
-    const candidates = [];
-    let current = target;
-    while (current && (current === node || node.contains(current))) {
-      candidates.push(current);
-      if (current === node) break;
-      current = current.parentElement;
-    }
-
-    for (const element of candidates) {
-      const propsKey = Object.getOwnPropertyNames(element).find((key) => key.startsWith("__reactProps$"));
-      const handler = propsKey ? element[propsKey]?.onClick : null;
-      if (typeof handler !== "function") continue;
-      await Promise.resolve(handler(componentEvent(target, element)));
-      return { ok: true };
-    }
-    return { ok: false, message: "\u83dc\u5355\u9879\u672a\u66b4\u9732\u7ec4\u4ef6\u9009\u62e9\u56de\u8c03" };
+    if (!target) return Promise.resolve({ ok: false, message: "\u672a\u627e\u5230\u83dc\u5355\u9009\u62e9\u76ee\u6807" });
+    const requestId = `category-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    return new Promise((resolve) => {
+      const timeout = window.setTimeout(() => {
+        window.removeEventListener("dy-monitor:component-menu-selected", onResult);
+        resolve({ ok: false, message: "\u7f51\u9875\u7c7b\u76ee\u7ec4\u4ef6\u672a\u54cd\u5e94" });
+      }, 2000);
+      const onResult = (event) => {
+        let result = null;
+        try {
+          result = JSON.parse(String(event?.detail || ""));
+        } catch {
+          return;
+        }
+        if (result?.requestId !== requestId) return;
+        window.clearTimeout(timeout);
+        window.removeEventListener("dy-monitor:component-menu-selected", onResult);
+        resolve({ ok: Boolean(result.ok), message: String(result.message || "") });
+      };
+      window.addEventListener("dy-monitor:component-menu-selected", onResult);
+      target.dispatchEvent(
+        new CustomEvent("dy-monitor:component-menu-select", {
+          bubbles: true,
+          detail: JSON.stringify({ requestId })
+        })
+      );
+    });
   }
 
   function oldStyleMenuItem(level, name, forceColumn = false) {

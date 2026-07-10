@@ -5,6 +5,70 @@
 
   window.__DY_MONITOR_PAGE_HOOKED__ = true;
 
+  const COMPONENT_SELECT_REQUEST = "dy-monitor:component-menu-select";
+  const COMPONENT_SELECT_RESPONSE = "dy-monitor:component-menu-selected";
+
+  function componentEvent(target, currentTarget) {
+    return {
+      type: "click",
+      target,
+      currentTarget,
+      nativeEvent: { type: "click", target, currentTarget },
+      preventDefault() {},
+      stopPropagation() {},
+      persist() {},
+      isDefaultPrevented: () => false,
+      isPropagationStopped: () => false
+    };
+  }
+
+  function emitComponentSelectResult(requestId, ok, message = "") {
+    window.dispatchEvent(
+      new CustomEvent(COMPONENT_SELECT_RESPONSE, {
+        detail: JSON.stringify({ requestId, ok, message })
+      })
+    );
+  }
+
+  window.addEventListener(COMPONENT_SELECT_REQUEST, (event) => {
+    let request = null;
+    try {
+      request = JSON.parse(String(event?.detail || ""));
+    } catch {
+      return;
+    }
+    const requestId = String(request?.requestId || "");
+    const target = event?.target instanceof Element ? event.target : null;
+    const menuItem = target?.closest?.(
+      ".ecom-cascader-menu-item,[class*='menu-item'],[role='option'],[role='menuitem'],li"
+    );
+    if (!requestId || !target || !menuItem) {
+      emitComponentSelectResult(requestId, false, "Category component target is unavailable");
+      return;
+    }
+
+    const candidates = [];
+    let current = target;
+    while (current && (current === menuItem || menuItem.contains(current))) {
+      candidates.push(current);
+      if (current === menuItem) break;
+      current = current.parentElement;
+    }
+    const owner = candidates.find((element) => {
+      const propsKey = Object.getOwnPropertyNames(element).find((key) => key.startsWith("__reactProps$"));
+      return typeof (propsKey ? element[propsKey]?.onClick : null) === "function";
+    });
+    if (!owner) {
+      emitComponentSelectResult(requestId, false, "Category component callback is unavailable");
+      return;
+    }
+
+    const propsKey = Object.getOwnPropertyNames(owner).find((key) => key.startsWith("__reactProps$"));
+    Promise.resolve(owner[propsKey].onClick(componentEvent(target, owner)))
+      .then(() => emitComponentSelectResult(requestId, true))
+      .catch((error) => emitComponentSelectResult(requestId, false, error?.message || "Category callback failed"));
+  });
+
   function cloneHeaders(headers) {
     try {
       if (!headers) {

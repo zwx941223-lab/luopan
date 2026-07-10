@@ -1,5 +1,12 @@
 # DY Monitor Project Status
 
+## 2026-07-10 - plugin-v4.5.2 moves category callbacks into the page world
+
+- Fixed `plugin-v4.5.1` reading React menu callbacks from the extension isolated world, where page-owned `__reactProps$` values are not visible.
+- The content script now dispatches a request from the live menu DOM node and the existing page-world hook invokes that node's React `onClick`, returning a string-only result event.
+- No operating-system mouse input, fixed coordinates, debugger permission, or direct ranking API capture is used.
+- Kept real page state changes, page-driven ranking requests, 20-page pagination, metric merging, and upload validation unchanged.
+
 ## 2026-07-10 - plugin-v4.5.1 invokes the category component callback
 
 - Replaced page-script synthetic clicks for level-1, level-2, and `全部` category menu rows by invoking the React menu item's own `onClick` selection callback.
