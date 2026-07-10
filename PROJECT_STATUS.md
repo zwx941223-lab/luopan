@@ -1,5 +1,12 @@
 # DY Monitor Project Status
 
+## 2026-07-11 - plugin-v4.5.6 accepts existing expansion and resolves nested handlers
+
+- Live `plugin-v4.5.5` evidence showed the first default category failing before collection, with `0` successes and `1` failure.
+- Already active branch rows now pass their expansion check before callback invocation, so a default row is not rejected merely because it does not expose another hover callback.
+- The page bridge still prefers the real menu row, then searches its descendants for the requested hover or click handler when the row itself does not own it.
+- Nested handlers receive their owning element as the event target; expansion, terminal selection, downstream confirmation, pagination, parsing, and upload boundaries remain separate.
+
 ## 2026-07-11 - plugin-v4.5.5 separates cascader expansion from final selection
 
 - Live status confirmed the fixed failure pattern: the default `玩具乐器/玩具` succeeded, `玩具乐器/乐器及配件` failed, and the next first-level default `服饰内衣/服装` succeeded.

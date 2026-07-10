@@ -57,7 +57,13 @@
       if (current === menuItem) break;
       current = current.parentElement;
     }
-    const candidates = [menuItem, ...path.filter((element) => element !== menuItem).reverse()];
+    const candidates = [];
+    const addCandidate = (element) => {
+      if (element && !candidates.includes(element)) candidates.push(element);
+    };
+    addCandidate(menuItem);
+    path.filter((element) => element !== menuItem).reverse().forEach(addCandidate);
+    Array.from(menuItem.querySelectorAll?.("*") || []).forEach(addCandidate);
     const sequence = interaction === "expand"
       ? [
         ["onPointerOver", "pointerover"],
@@ -74,7 +80,8 @@
     for (const [handlerName, eventType] of sequence) {
       const owner = candidates.find((element) => typeof reactProps(element)?.[handlerName] === "function");
       if (!owner) continue;
-      await Promise.resolve(reactProps(owner)[handlerName](componentEvent(eventType, target, owner)));
+      const eventTarget = owner === menuItem ? target : owner;
+      await Promise.resolve(reactProps(owner)[handlerName](componentEvent(eventType, eventTarget, owner)));
       invoked += 1;
     }
     return invoked;

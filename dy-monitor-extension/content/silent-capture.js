@@ -490,6 +490,13 @@
       .join("\n");
   }
 
+  function menuExpansionAlreadyApplied(level, node, expectedNextName) {
+    if (menuItemSelected(node)) return true;
+    if (level !== 0) return false;
+    const downstream = menuColumns()[1] || null;
+    return Boolean(downstream && oldStyleMenuItem(1, expectedNextName, true));
+  }
+
   async function waitForMenuExpansion(level, node, downstreamBefore, signatureBefore, expectedNextName, timeoutMs = 2600) {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
@@ -566,13 +573,18 @@
       let found = false;
       for (let retry = 0; retry < 4 && !found; retry += 1) {
         if (retry > 0) await sleep(500);
-        const downstreamBefore = menuColumns()[level + 1] || null;
-        const signatureBefore = menuColumnSignature(downstreamBefore);
         const node = isAlcoholSameNameCategory(level1, level2) && level === 1
           ? sameNameNextColumnItem(name, previousRect)
           : oldStyleMenuItem(level, name);
         if (node) {
           previousRect = node.getBoundingClientRect();
+          const expectedNextName = path[level + 1] || "\u5168\u90e8";
+          if (menuExpansionAlreadyApplied(level, node, expectedNextName)) {
+            found = true;
+            break;
+          }
+          const downstreamBefore = menuColumns()[level + 1] || null;
+          const signatureBefore = menuColumnSignature(downstreamBefore);
           node.scrollIntoView?.({ block: "center", inline: "nearest" });
           await sleep(180);
           const expanded = await componentMenuSelect(node, "expand");
@@ -582,7 +594,7 @@
             node,
             downstreamBefore,
             signatureBefore,
-            path[level + 1] || "\u5168\u90e8"
+            expectedNextName
           );
         }
       }
