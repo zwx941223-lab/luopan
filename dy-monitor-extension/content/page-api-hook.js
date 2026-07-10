@@ -49,7 +49,7 @@
     return propsKey ? element[propsKey] : null;
   }
 
-  async function invokeComponentInteraction(target, menuItem) {
+  async function invokeComponentInteraction(target, menuItem, interaction) {
     const path = [];
     let current = target;
     while (current && (current === menuItem || menuItem.contains(current))) {
@@ -58,19 +58,18 @@
       current = current.parentElement;
     }
     const candidates = [menuItem, ...path.filter((element) => element !== menuItem).reverse()];
-    const sequence = [
-      ["onPointerOver", "pointerover"],
-      ["onPointerEnter", "pointerenter"],
-      ["onMouseOver", "mouseover"],
-      ["onMouseEnter", "mouseenter"],
-      ["onPointerMove", "pointermove"],
-      ["onMouseMove", "mousemove"],
-      ["onPointerDown", "pointerdown"],
-      ["onMouseDown", "mousedown"],
-      ["onPointerUp", "pointerup"],
-      ["onMouseUp", "mouseup"],
-      ["onClick", "click"]
-    ];
+    const sequence = interaction === "expand"
+      ? [
+        ["onPointerOver", "pointerover"],
+        ["onPointerEnter", "pointerenter"],
+        ["onMouseOver", "mouseover"],
+        ["onMouseEnter", "mouseenter"],
+        ["onPointerMove", "pointermove"],
+        ["onMouseMove", "mousemove"]
+      ]
+      : interaction === "select"
+        ? [["onClick", "click"]]
+        : [];
     let invoked = 0;
     for (const [handlerName, eventType] of sequence) {
       const owner = candidates.find((element) => typeof reactProps(element)?.[handlerName] === "function");
@@ -97,16 +96,17 @@
       return;
     }
     const requestId = String(request?.requestId || "");
+    const interaction = String(request?.interaction || "");
     const target = event?.target instanceof Element ? event.target : null;
     const menuItem = target?.closest?.(
       ".ecom-cascader-menu-item,[class*='menu-item'],[role='option'],[role='menuitem'],li"
     );
-    if (!requestId || !target || !menuItem) {
+    if (!requestId || !["expand", "select"].includes(interaction) || !target || !menuItem) {
       emitComponentSelectResult(requestId, false, "Category component target is unavailable");
       return;
     }
 
-    invokeComponentInteraction(target, menuItem)
+    invokeComponentInteraction(target, menuItem, interaction)
       .then((invoked) => emitComponentSelectResult(
         requestId,
         invoked > 0,

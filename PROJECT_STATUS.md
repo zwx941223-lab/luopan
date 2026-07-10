@@ -1,5 +1,12 @@
 # DY Monitor Project Status
 
+## 2026-07-11 - plugin-v4.5.5 separates cascader expansion from final selection
+
+- Live status confirmed the fixed failure pattern: the default `玩具乐器/玩具` succeeded, `玩具乐器/乐器及配件` failed, and the next first-level default `服饰内衣/服装` succeeded.
+- Root cause: the page bridge treated every cascader row alike, invoked hover and click callbacks together, and reported success when any callback ran without confirming the downstream column changed.
+- First-level and second-level rows now use only React hover/move expansion callbacks; the terminal `全部` row uses only the React click callback.
+- Each branch waits for its active state or downstream-column change before continuing, and `全部` must update the full visible category label before capture starts.
+
 ## 2026-07-11 - plugin-v4.5.4 preserves the selected cascader row across the page bridge
 
 - Live `plugin-v4.5.3` evidence confirmed `玩具乐器/乐器及配件` still remained on the default `玩具乐器/玩具` secondary category.
