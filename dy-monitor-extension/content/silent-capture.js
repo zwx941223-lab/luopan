@@ -405,11 +405,31 @@
       .sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
   }
 
+  function menuItemNodes(scope = document) {
+    const selectors = [
+      ".ecom-cascader-menu-item",
+      "[class*='menu-item']",
+      "[role='option']",
+      "[role='menuitem']",
+      "li"
+    ];
+    const seen = new Set();
+    const nodes = [];
+    selectors.forEach((selector) => {
+      Array.from(scope.querySelectorAll(selector)).forEach((node) => {
+        if (!seen.has(node) && visible(node)) {
+          seen.add(node);
+          nodes.push(node);
+        }
+      });
+    });
+    return nodes;
+  }
+
   function oldStyleMenuItem(level, name, forceColumn = false) {
     const menus = menuColumns();
     const menu = menus[level];
-    const findInMenu = (scope) => Array.from(scope.querySelectorAll(".ecom-cascader-menu-item,[class*='menu-item'],li,[role='option']"))
-      .filter(visible)
+    const findInMenu = (scope) => menuItemNodes(scope)
       .find((item) => {
         const value = text(item).trim();
         return value === name || value.startsWith(`${name}\uFF08`) || value.startsWith(`${name}(`) || compact(value) === compact(name);
@@ -433,7 +453,11 @@
 
   function menuItemSelected(node) {
     if (!node) return false;
-    const target = node.closest?.(".ecom-cascader-menu-item,[class*='menu-item'],li,[role='option'],[role='menuitem']") || node;
+    const target = node.matches?.(".ecom-cascader-menu-item,[class*='menu-item'],[role='option'],[role='menuitem']")
+      ? node
+      : node.querySelector?.(".ecom-cascader-menu-item,[class*='menu-item'],[role='option'],[role='menuitem']") ||
+        node.closest?.(".ecom-cascader-menu-item,[class*='menu-item'],[role='option'],[role='menuitem']") ||
+        node;
     const signature = [
       target.className,
       target.parentElement?.className,
@@ -445,7 +469,12 @@
 
   async function activateMenuItem(node) {
     if (!node) return null;
-    const target = node.closest?.(".ecom-cascader-menu-item,[class*='menu-item'],li,[role='option'],[role='menuitem']") || node;
+    const target = node.matches?.(".ecom-cascader-menu-item,[class*='menu-item'],[role='option'],[role='menuitem']")
+      ? node
+      : node.querySelector?.(".ecom-cascader-menu-item,[class*='menu-item'],[role='option'],[role='menuitem']") ||
+        node.closest?.(".ecom-cascader-menu-item,[class*='menu-item'],[role='option'],[role='menuitem']") ||
+        node.closest?.("li") ||
+        node;
     target.scrollIntoView?.({ block: "center", inline: "nearest" });
     await sleep(180);
     const rect = target.getBoundingClientRect();
@@ -474,8 +503,7 @@
 
   function sameNameNextColumnItem(name, previousRect) {
     if (!previousRect) return null;
-    return Array.from(document.querySelectorAll(".ecom-cascader-menu-item,[class*='menu-item'],li,[role='option']"))
-      .filter(visible)
+    return menuItemNodes()
       .map((item) => ({ item, rect: item.getBoundingClientRect(), value: text(item).trim() }))
       .filter(({ rect }) => rect.left > previousRect.left + Math.max(30, previousRect.width * 0.5))
       .filter(({ value }) => value === name || value.startsWith(`${name}\uFF08`) || value.startsWith(`${name}(`) || compact(value) === compact(name))
@@ -577,8 +605,7 @@
       const menus = menuColumns();
       for (let index = menus.length - 1; index >= 0; index -= 1) {
         if (isAlcoholSameNameCategory(level1, level2) && index < 2) continue;
-        const items = Array.from(menus[index].querySelectorAll(".ecom-cascader-menu-item,[class*='menu-item'],li,[role='option']"))
-          .filter(visible);
+        const items = menuItemNodes(menus[index]);
         const allItem = items.find((item) => compact(text(item)) === compact("\u5168\u90e8"));
         if (allItem) {
           await activateMenuItem(allItem);

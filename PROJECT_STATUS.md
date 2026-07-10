@@ -1,5 +1,13 @@
 # DY Monitor Project Status
 
+## 2026-07-10 - plugin-v4.4.9 targets real cascader menu items
+
+- Fixed the second secondary category failing while the first/default option and the next level-1 default category still succeeded.
+- Root cause: category lookup mixed real cascader items with generic outer `li` wrappers and accepted the first text match, even when the click handler lived on an inner item node.
+- Menu lookup now prioritizes real cascader item classes and `role=option/menuitem`; generic `li` nodes are last-resort candidates only.
+- Secondary activation, same-name category handling, and the final `全部` selection now resolve through the same real-item targeting path.
+- Kept catalog-only API usage, real page capture, 20-page pagination, metric merging, and the empty-metric upload guard unchanged.
+
 ## 2026-07-10 - plugin-v4.4.8 catalog-only API + real page capture
 
 - Combined the `plugin-v4.3.1` real page-switch/page-pagination model with the `plugin-v4.4.0` live category catalog.
