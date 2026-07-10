@@ -1,5 +1,12 @@
 # DY Monitor Project Status
 
+## 2026-07-11 - plugin-v4.5.8 restores v4.3.1 menu-node selection
+
+- Live `plugin-v4.5.7` evidence showed the correct secondary row visible but not activated, while the third column remained on the default category.
+- `plugin-v4.5.7` restored the old click sequence but still retained the later `menuItemNodes()` class/role priority, so the click could land on a text-matching inner node rather than the DOM node selected by `plugin-v4.3.1`.
+- Restored the original native `querySelectorAll()` DOM-order lookup for first/second-level rows, same-name next-column rows, and terminal `全部` rows.
+- Removed the later forced node-priority helper; the v4.3.1 `fullClick()` sequence, waits, final label confirmation, and current capture safeguards remain unchanged.
+
 ## 2026-07-11 - plugin-v4.5.7 restores the v4.3.1 category click path
 
 - Live `plugin-v4.5.6` status confirmed that only the already selected default category could succeed; every real page-state transition failed.

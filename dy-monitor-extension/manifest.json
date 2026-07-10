@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "DY Monitor",
-  "version": "4.5.7",
+  "version": "4.5.8",
   "description": "Douyin Shop Monitor",
   "action": {
     "default_title": "DY Monitor",

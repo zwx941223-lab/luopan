@@ -395,31 +395,11 @@
       .sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
   }
 
-  function menuItemNodes(scope = document) {
-    const selectors = [
-      ".ecom-cascader-menu-item",
-      "[class*='menu-item']",
-      "[role='option']",
-      "[role='menuitem']",
-      "li"
-    ];
-    const seen = new Set();
-    const nodes = [];
-    selectors.forEach((selector) => {
-      Array.from(scope.querySelectorAll(selector)).forEach((node) => {
-        if (!seen.has(node) && visible(node)) {
-          seen.add(node);
-          nodes.push(node);
-        }
-      });
-    });
-    return nodes;
-  }
-
   function oldStyleMenuItem(level, name, forceColumn = false) {
     const menus = menuColumns();
     const menu = menus[level];
-    const findInMenu = (scope) => menuItemNodes(scope)
+    const findInMenu = (scope) => Array.from(scope.querySelectorAll(".ecom-cascader-menu-item,[class*='menu-item'],li,[role='option']"))
+      .filter(visible)
       .find((item) => {
         const value = text(item).trim();
         return value === name || value.startsWith(`${name}\uFF08`) || value.startsWith(`${name}(`) || compact(value) === compact(name);
@@ -443,7 +423,8 @@
 
   function sameNameNextColumnItem(name, previousRect) {
     if (!previousRect) return null;
-    return menuItemNodes()
+    return Array.from(document.querySelectorAll(".ecom-cascader-menu-item,[class*='menu-item'],li,[role='option']"))
+      .filter(visible)
       .map((item) => ({ item, rect: item.getBoundingClientRect(), value: text(item).trim() }))
       .filter(({ rect }) => rect.left > previousRect.left + Math.max(30, previousRect.width * 0.5))
       .filter(({ value }) => value === name || value.startsWith(`${name}\uFF08`) || value.startsWith(`${name}(`) || compact(value) === compact(name))
@@ -527,7 +508,8 @@
       const menus = menuColumns();
       for (let index = menus.length - 1; index >= 0; index -= 1) {
         if (isAlcoholSameNameCategory(level1, level2) && index < 2) continue;
-        const items = menuItemNodes(menus[index]);
+        const items = Array.from(menus[index].querySelectorAll(".ecom-cascader-menu-item,[class*='menu-item'],li,[role='option']"))
+          .filter(visible);
         const allItem = items.find((item) => compact(text(item)) === compact("\u5168\u90e8"));
         if (allItem) {
           fullClick(allItem);
