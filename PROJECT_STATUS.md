@@ -1,5 +1,12 @@
 # DY Monitor Project Status
 
+## 2026-07-10 - plugin-v4.4.4 restores plugin-v4.4.0 capture behavior
+
+- Restored `dy-monitor-extension/content/silent-capture.js` exactly to the preserved `plugin-v4.4.0-stable` tag.
+- Removed the later metric-gate and expanded category-parameter rewrite changes from the capture path.
+- Restored the stable API-first category flow with its original page-switch fallback and unchanged 20-page collection behavior.
+- Kept the current web/server memory hardening and all non-capture modules unchanged.
+
 ## 2026-07-10 - web-v2.1.4 / plugin-v4.4.3 narrow category ID rewrite
 
 - Confirmed the server `plugin-v4.4.2` round failed all `46` categories with zero successful timings because the rewritten API requests returned no ranking rows.
