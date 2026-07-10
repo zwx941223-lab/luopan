@@ -1224,10 +1224,10 @@
   function categoryParamValue(name, meta) {
     const key = normalizedParamName(name);
     if (!key) return "";
-    if (/^(industry|industryid|industryids|firstcate|firstcateid|firstcateids|firstcategory|firstcategoryid|firstcategoryids|level1cate|level1cateid|level1category|level1categoryid)$/.test(key)) {
+    if (/^(industryid|industryids|firstcateid|firstcateids|firstcategoryid|firstcategoryids|level1cateid|level1cateids|level1categoryid|level1categoryids)$/.test(key)) {
       return String(meta.industryId || "");
     }
-    if (/^(category|categoryid|categoryids|cate|cateid|cateids|secondcate|secondcateid|secondcateids|secondcategory|secondcategoryid|secondcategoryids|leafcate|leafcateid|leafcategory|leafcategoryid)$/.test(key)) {
+    if (/^(categoryid|categoryids|cateid|cateids|secondcateid|secondcateids|secondcategoryid|secondcategoryids|leafcateid|leafcateids|leafcategoryid|leafcategoryids)$/.test(key)) {
       return String(meta.categoryId || "");
     }
     return "";

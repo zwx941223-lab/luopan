@@ -3,6 +3,16 @@ import { APP_VERSION } from "../config.js";
 
 const logs = [
   {
+    version: "web-v2.1.4 / plugin-v4.4.3",
+    date: "2026-07-10",
+    items: [
+      "\u4fee\u590d plugin-v4.4.2 \u7c7b\u76ee\u53c2\u6570\u5339\u914d\u8fc7\u5bbd\u5bfc\u81f4 46 \u4e2a\u7c7b\u76ee\u5168\u90e8\u8fd4\u56de\u7a7a\u699c\u5355\u7684\u95ee\u9898\u3002",
+      "\u53c2\u6570\u91cd\u5199\u73b0\u5728\u53ea\u5904\u7406 categoryId/categoryIds/cateId/secondCateId/industryId \u7b49\u660e\u786e ID \u5b57\u6bb5\u3002",
+      "\u666e\u901a category/cate/industry \u53ca\u672a\u77e5\u8bf7\u6c42\u53c2\u6570\u4fdd\u6301\u7f57\u76d8\u539f\u503c\uff0c\u4e0d\u518d\u88ab\u8bef\u6539\u3002",
+      "\u7ee7\u7eed\u4f7f\u7528\u7eaf\u63a5\u53e3\u7c7b\u76ee\u91c7\u96c6\uff0c\u4e0d\u56de\u9000\u70b9\u51fb\u884c\u4e1a\u7c7b\u76ee\u3002"
+    ]
+  },
+  {
     version: "web-v2.1.3 / plugin-v4.4.2",
     date: "2026-07-10",
     items: [

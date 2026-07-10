@@ -1,5 +1,12 @@
 # DY Monitor Project Status
 
+## 2026-07-10 - web-v2.1.4 / plugin-v4.4.3 narrow category ID rewrite
+
+- Confirmed the server `plugin-v4.4.2` round failed all `46` categories with zero successful timings because the rewritten API requests returned no ranking rows.
+- Root cause: the generic parameter matcher also treated bare `category`, `cate`, and `industry` fields as IDs and could overwrite unrelated Compass request semantics.
+- Restricted category mutation to explicit ID/IDs fields only; bare and unknown parameters now remain unchanged.
+- Kept API-only category capture, the metric coverage gate, and 20-page collection unchanged.
+
 ## 2026-07-10 - web-v2.1.3 / plugin-v4.4.2 API-only category parameter fix
 
 - Confirmed from the server auto-state that the `plugin-v4.4.1` round completed `46` categories with `19` successes and `27` failures; the failed categories were rejected during category switching after the metric gate sent them back to the page-click path.
