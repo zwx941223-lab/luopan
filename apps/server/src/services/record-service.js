@@ -738,6 +738,22 @@ export function getCategoriesForUser(user) {
     });
 }
 
+function resolveRankingCategoryId(user, categoryId) {
+  const requestedCategoryId = String(categoryId || "").trim();
+  const categories = getCategoriesForUser(user);
+  const allowedCategoryIds = new Set(categories.map((entry) => String(entry.id || "")));
+
+  if (requestedCategoryId && allowedCategoryIds.has(requestedCategoryId)) {
+    return requestedCategoryId;
+  }
+
+  return (
+    categories.find((category) => category.hasData)?.id ||
+    categories[0]?.id ||
+    ""
+  );
+}
+
 export function getVisibleRecords(user, filters = {}) {
   const allowedCategoryIds = new Set(getCategoriesForUser(user).map((entry) => entry.id));
 
@@ -1391,12 +1407,22 @@ export function getRankingRows(user, filters = {}) {
 
 export function getRankingRowsPage(user, filters = {}) {
   const viewMode = String(filters.viewMode || "all");
+  const categoryId = resolveRankingCategoryId(user, filters.categoryId);
+  const scopedFilters = {
+    ...filters,
+    categoryId
+  };
+
+  if (!categoryId) {
+    return paginateItems([], filters);
+  }
+
   if (viewMode === "firstListed" || viewMode === "todayNew") {
-    return paginateItems(getTodayFirstListedRows(user, filters.categoryId), filters);
+    return paginateItems(getTodayFirstListedRows(user, categoryId), filters);
   }
 
   const rows = getRankingRows(user, {
-    ...filters,
+    ...scopedFilters,
     includeTodayFirstListed: false
   });
   const filteredRows = viewMode === "changed"

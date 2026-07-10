@@ -1,5 +1,12 @@
 # DY Monitor Project Status
 
+## 2026-07-10 - web-v1.9.22 ranking default category OOM hotfix
+
+- Fixed the ranking detail endpoint crash when the page requested rows without a `categoryId`.
+- Root cause: empty category requests could fall through to the legacy `readStore()` path and load all `capture_batches` plus all `records` into memory, causing Node.js heap out-of-memory on the server.
+- Ranking detail now resolves empty or invalid category requests to the first visible category with data, then uses the category-scoped latest-batch path.
+- This keeps the page opening behavior useful while preventing accidental full-store reads.
+
 ## 2026-07-10 - web-v1.9.21 changelog page update
 
 - Restored the web changelog page to readable Chinese.
