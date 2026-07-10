@@ -1,5 +1,12 @@
 # DY Monitor Project Status
 
+## 2026-07-10 - plugin-v4.4.10 restores v4.3.1 full-click behavior
+
+- Kept `plugin-v4.4.9` real cascader item priority while restoring the proven `plugin-v4.3.1` `fullClick()` event chain for level-1, level-2, and `全部` selections.
+- Removed the later immediate active-state and downstream-column-change requirements that could reject the click before the cascader completed its own update.
+- Category selection now completes the full cascader path first and relies on the existing final visible category-label confirmation.
+- Kept catalog-only API usage, real page capture, 20-page pagination, metric merging, and the empty-metric upload guard unchanged.
+
 ## 2026-07-10 - plugin-v4.4.9 targets real cascader menu items
 
 - Fixed the second secondary category failing while the first/default option and the next level-1 default category still succeeded.

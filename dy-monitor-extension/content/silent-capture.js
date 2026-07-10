@@ -451,56 +451,6 @@
     return findInMenu(menu);
   }
 
-  function menuItemSelected(node) {
-    if (!node) return false;
-    const target = node.matches?.(".ecom-cascader-menu-item,[class*='menu-item'],[role='option'],[role='menuitem']")
-      ? node
-      : node.querySelector?.(".ecom-cascader-menu-item,[class*='menu-item'],[role='option'],[role='menuitem']") ||
-        node.closest?.(".ecom-cascader-menu-item,[class*='menu-item'],[role='option'],[role='menuitem']") ||
-        node;
-    const signature = [
-      target.className,
-      target.parentElement?.className,
-      target.getAttribute?.("aria-selected"),
-      target.getAttribute?.("aria-checked")
-    ].join(" ").toLowerCase();
-    return /active|selected|checked|true/.test(signature);
-  }
-
-  async function activateMenuItem(node) {
-    if (!node) return null;
-    const target = node.matches?.(".ecom-cascader-menu-item,[class*='menu-item'],[role='option'],[role='menuitem']")
-      ? node
-      : node.querySelector?.(".ecom-cascader-menu-item,[class*='menu-item'],[role='option'],[role='menuitem']") ||
-        node.closest?.(".ecom-cascader-menu-item,[class*='menu-item'],[role='option'],[role='menuitem']") ||
-        node.closest?.("li") ||
-        node;
-    target.scrollIntoView?.({ block: "center", inline: "nearest" });
-    await sleep(180);
-    const rect = target.getBoundingClientRect();
-    const base = {
-      bubbles: true,
-      cancelable: true,
-      view: window,
-      clientX: Math.round(rect.left + rect.width / 2),
-      clientY: Math.round(rect.top + rect.height / 2)
-    };
-    try {
-      ["pointerover", "pointerenter", "pointermove", "pointerdown", "pointerup"].forEach((type) => {
-        target.dispatchEvent(new PointerEvent(type, { ...base, pointerId: 1, pointerType: "mouse", isPrimary: true }));
-      });
-    } catch {
-      // PointerEvent is optional in older Chromium builds.
-    }
-    ["mouseover", "mouseenter", "mousemove", "mousedown", "mouseup"].forEach((type) => {
-      target.dispatchEvent(new MouseEvent(type, base));
-    });
-    target.focus?.({ preventScroll: true });
-    target.click();
-    await sleep(700);
-    return target;
-  }
-
   function sameNameNextColumnItem(name, previousRect) {
     if (!previousRect) return null;
     return menuItemNodes()
@@ -573,23 +523,16 @@
       let found = false;
       for (let retry = 0; retry < 4 && !found; retry += 1) {
         if (retry > 0) await sleep(500);
-        const downstreamBefore = compact(text(menuColumns()[level + 1]));
         const node = isAlcoholSameNameCategory(level1, level2) && level === 1
           ? sameNameNextColumnItem(name, previousRect)
           : oldStyleMenuItem(level, name);
         if (node) {
           previousRect = node.getBoundingClientRect();
-          const activated = await activateMenuItem(node);
-          const downstreamAfter = compact(text(menuColumns()[level + 1]));
-          const applied =
-            level === 0 ||
-            menuItemSelected(activated) ||
-            categoryLabelMatches(level1, level2) ||
-            Boolean(downstreamAfter && downstreamAfter !== downstreamBefore);
-          if (applied) {
-            found = true;
-            break;
-          }
+          node.scrollIntoView?.({ block: "center", inline: "nearest" });
+          await sleep(180);
+          fullClick(node);
+          found = true;
+          break;
         }
       }
       if (!found) {
@@ -608,12 +551,10 @@
         const items = menuItemNodes(menus[index]);
         const allItem = items.find((item) => compact(text(item)) === compact("\u5168\u90e8"));
         if (allItem) {
-          await activateMenuItem(allItem);
+          fullClick(allItem);
           await sleep(2000);
-          if (categoryLabelMatches(level1, level2)) {
-            allClicked = true;
-            break;
-          }
+          allClicked = true;
+          break;
         }
       }
     }
