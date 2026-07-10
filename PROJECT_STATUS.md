@@ -1,5 +1,13 @@
 # DY Monitor Project Status
 
+## 2026-07-10 - web-v2.1.3 / plugin-v4.4.2 API-only category parameter fix
+
+- Confirmed from the server auto-state that the `plugin-v4.4.1` round completed `46` categories with `19` successes and `27` failures; the failed categories were rejected during category switching after the metric gate sent them back to the page-click path.
+- Removed the batch category page-click fallback. Batch category selection now always validates and captures through the Compass ranking API template.
+- Restored complete category parameter rewriting for direct ranking requests, including scalar, array-style, JSON-encoded, and filter-object first/second category fields.
+- Kept the core metric coverage gate so product/video rows without payment/click/order metrics are not uploaded as a valid latest batch.
+- Kept the 20-page capture behavior unchanged.
+
 ## 2026-07-10 - web-v2.1.2 / plugin-v4.4.1 latest metric capture fix
 
 - Reverted the rejected metric-empty trusted-batch gate from `web-v2.1.1`; ranking detail no longer falls back to an older batch just because the newest batch is metric-empty.

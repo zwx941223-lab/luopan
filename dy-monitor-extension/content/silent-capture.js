@@ -566,44 +566,11 @@
     await ensureTopButton(LABELS.realtime, 450);
     await syncCategoryCatalog();
 
-    if (categoryLabelMatches(level1, level2)) {
-      return {
-        ok: true,
-        detected: { categoryId: category.categoryId || category.id || "", categoryName: `${level1}/${level2}` },
-        message: "\u5f53\u524d\u5df2\u662f\u76ee\u6807\u7c7b\u76ee"
-      };
-    }
-
     const apiSwitch = await switchByCategoryApi(category, level1, level2).catch((error) => ({
       ok: false,
       message: error.message || String(error)
     }));
-    if (apiSwitch.ok) {
-      return apiSwitch;
-    }
-
-    let last = null;
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
-      last = await applyCategoryOnce(category, level1, level2, attempt);
-      if (last.ok || categoryLabelMatches(level1, level2)) {
-        return {
-          ok: true,
-          detected: { categoryId: category.categoryId || category.id || "", categoryName: `${level1}/${level2}` },
-          message: "\u7c7b\u76ee\u5207\u6362\u6210\u529f"
-        };
-      }
-      await sleep(500);
-    }
-
-    const actual = currentCategoryLabel() || "-";
-    runtime.state.latestCategoryDebug = {
-      stage: "switch-not-applied-after-retry",
-      target: `${level1}/${level2}`,
-      actual,
-      lastMessage: last?.message || "",
-      columns: menuColumns().map(text)
-    };
-    return { ok: false, message: `\u7c7b\u76ee\u672a\u5207\u6362\u6210\u529f\uff1a\u76ee\u6807 ${level1}/${level2}\uff0c\u5b9e\u9645 ${actual}` };
+    return apiSwitch;
   }
 
   function rankingTableRect() {
@@ -1250,32 +1217,109 @@
     }
   }
 
-  function setKnownParam(params, names, value) {
-    if (value == null || value === "") return false;
+  function normalizedParamName(value) {
+    return String(value || "").replace(/[^a-z0-9]/gi, "").toLowerCase();
+  }
+
+  function categoryParamValue(name, meta) {
+    const key = normalizedParamName(name);
+    if (!key) return "";
+    if (/^(industry|industryid|industryids|firstcate|firstcateid|firstcateids|firstcategory|firstcategoryid|firstcategoryids|level1cate|level1cateid|level1category|level1categoryid)$/.test(key)) {
+      return String(meta.industryId || "");
+    }
+    if (/^(category|categoryid|categoryids|cate|cateid|cateids|secondcate|secondcateid|secondcateids|secondcategory|secondcategoryid|secondcategoryids|leafcate|leafcateid|leafcategory|leafcategoryid)$/.test(key)) {
+      return String(meta.categoryId || "");
+    }
+    return "";
+  }
+
+  function replacementWithSameShape(current, replacement) {
+    if (Array.isArray(current)) return [replacement];
+    if (typeof current === "number") return Number(replacement) || replacement;
+    if (typeof current !== "string") return replacement;
+    const trimmed = current.trim();
+    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+      return JSON.stringify([replacement]);
+    }
+    return replacement;
+  }
+
+  function rewriteCategoryJson(value, meta, parentKey = "") {
+    const direct = categoryParamValue(parentKey, meta);
+    if (direct) {
+      return { changed: true, value: replacementWithSameShape(value, direct) };
+    }
+    if (Array.isArray(value)) {
+      let changed = false;
+      const next = value.map((item) => {
+        const rewritten = rewriteCategoryJson(item, meta, "");
+        changed ||= rewritten.changed;
+        return rewritten.value;
+      });
+      return { changed, value: next };
+    }
+    if (!value || typeof value !== "object") return { changed: false, value };
+
+    const fieldName = value.field || value.fieldName || value.key || value.name || "";
+    const fieldReplacement = categoryParamValue(fieldName, meta);
     let changed = false;
-    names.forEach((name) => {
-      if (params.has(name)) {
-        params.set(name, String(value));
+    const next = { ...value };
+    for (const [key, item] of Object.entries(value)) {
+      const isFilterValue = fieldReplacement && /^(value|values|selected|selection|ids?)$/i.test(key);
+      if (isFilterValue) {
+        next[key] = replacementWithSameShape(item, fieldReplacement);
+        changed = true;
+        continue;
+      }
+      const rewritten = rewriteCategoryJson(item, meta, key);
+      if (rewritten.changed) {
+        next[key] = rewritten.value;
         changed = true;
       }
-    });
-    if (!changed && names[0]) {
-      params.set(names[0], String(value));
-      changed = true;
     }
-    return changed;
+    return { changed, value: next };
+  }
+
+  function rewriteCategoryUrlParams(params, meta) {
+    let categoryChanged = false;
+    let industryChanged = false;
+    for (const [key, rawValue] of Array.from(params.entries())) {
+      const direct = categoryParamValue(key, meta);
+      if (direct) {
+        params.set(key, replacementWithSameShape(rawValue, direct));
+        if (String(direct) === String(meta.categoryId || "")) categoryChanged = true;
+        if (String(direct) === String(meta.industryId || "")) industryChanged = true;
+        continue;
+      }
+      try {
+        const parsed = JSON.parse(rawValue);
+        const rewritten = rewriteCategoryJson(parsed, meta);
+        if (rewritten.changed) {
+          params.set(key, JSON.stringify(rewritten.value));
+          categoryChanged = categoryChanged || JSON.stringify(rewritten.value).includes(String(meta.categoryId || ""));
+          industryChanged = industryChanged || Boolean(meta.industryId && JSON.stringify(rewritten.value).includes(String(meta.industryId)));
+        }
+      } catch {
+        // Non-JSON query values are handled by their parameter names above.
+      }
+    }
+    if (!categoryChanged && meta.categoryId) params.set("category_id", String(meta.categoryId));
+    if (!industryChanged && meta.industryId) params.set("industry_id", String(meta.industryId));
   }
 
   function categoryApiUrl(template, meta, page) {
     const url = urlFromTemplate(template);
     if (!url || !meta.categoryId) return "";
     const params = url.searchParams;
-    setKnownParam(params, ["category_id", "categoryId", "cate_id", "cateId", "second_cate_id", "secondCateId"], meta.categoryId);
-    if (meta.industryId) {
-      setKnownParam(params, ["industry_id", "industryId", "first_cate_id", "firstCateId"], meta.industryId);
-    }
-    setKnownParam(params, ["page_no", "pageNo", "page", "current"], page);
-    setKnownParam(params, ["page_size", "pageSize", "limit"], 10);
+    rewriteCategoryUrlParams(params, meta);
+    ["page_no", "pageNo", "page", "current"].forEach((name) => {
+      if (params.has(name)) params.set(name, String(page));
+    });
+    ["page_size", "pageSize", "limit"].forEach((name) => {
+      if (params.has(name)) params.set(name, "10");
+    });
+    if (!["page_no", "pageNo", "page", "current"].some((name) => params.has(name))) params.set("page_no", String(page));
+    if (!["page_size", "pageSize", "limit"].some((name) => params.has(name))) params.set("page_size", "10");
     return url.toString();
   }
 
@@ -1389,7 +1433,7 @@
       return { ok: false, message: "\u63a5\u53e3\u5207\u6362\u7c7b\u76ee\u672a\u8fd4\u56de\u699c\u5355\u6570\u636e" };
     }
     if (!hasEnoughMetrics(rows)) {
-      return { ok: false, message: "\u63a5\u53e3\u5207\u6362\u7c7b\u76ee\u7f3a\u5c11\u652f\u4ed8/\u70b9\u51fb/\u6210\u4ea4\u6307\u6807\uff0c\u6539\u7528\u9875\u9762\u5207\u6362" };
+      return { ok: false, message: "\u7c7b\u76ee\u63a5\u53e3\u7f3a\u5c11\u652f\u4ed8/\u70b9\u51fb/\u6210\u4ea4\u6307\u6807" };
     }
     runtime.state.activeCategoryApiMeta = { ...meta, appliedAt: Date.now() };
     return {
