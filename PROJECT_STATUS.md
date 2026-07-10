@@ -1,5 +1,12 @@
 # DY Monitor Project Status
 
+## 2026-07-10 - plugin-v4.5.1 invokes the category component callback
+
+- Replaced page-script synthetic clicks for level-1, level-2, and `全部` category menu rows by invoking the React menu item's own `onClick` selection callback.
+- The target is still located from the live category text and current cascader columns; no screen coordinates, operating-system mouse input, or browser debugger permission are used.
+- The menu is still opened on the real Compass page and the selection callback lets the page itself update state and issue ranking requests.
+- Kept category catalog discovery, page-driven ranking requests, real 20-page pagination, metric merging, and upload validation unchanged.
+
 ## 2026-07-10 - plugin-v4.4.11 clicks the actual hit-tested menu element
 
 - Fixed category text lookup finding the correct menu row while `fullClick()` still targeted a wrapper instead of the element a real mouse click would hit.

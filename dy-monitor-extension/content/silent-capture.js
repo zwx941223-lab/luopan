@@ -441,6 +441,41 @@
     return node;
   }
 
+  function componentEvent(target, currentTarget) {
+    return {
+      type: "click",
+      target,
+      currentTarget,
+      nativeEvent: { type: "click", target, currentTarget },
+      preventDefault() {},
+      stopPropagation() {},
+      persist() {},
+      isDefaultPrevented: () => false,
+      isPropagationStopped: () => false
+    };
+  }
+
+  async function componentMenuSelect(node) {
+    const target = menuItemHitTarget(node);
+    if (!target) return { ok: false, message: "\u672a\u627e\u5230\u83dc\u5355\u9009\u62e9\u76ee\u6807" };
+    const candidates = [];
+    let current = target;
+    while (current && (current === node || node.contains(current))) {
+      candidates.push(current);
+      if (current === node) break;
+      current = current.parentElement;
+    }
+
+    for (const element of candidates) {
+      const propsKey = Object.getOwnPropertyNames(element).find((key) => key.startsWith("__reactProps$"));
+      const handler = propsKey ? element[propsKey]?.onClick : null;
+      if (typeof handler !== "function") continue;
+      await Promise.resolve(handler(componentEvent(target, element)));
+      return { ok: true };
+    }
+    return { ok: false, message: "\u83dc\u5355\u9879\u672a\u66b4\u9732\u7ec4\u4ef6\u9009\u62e9\u56de\u8c03" };
+  }
+
   function oldStyleMenuItem(level, name, forceColumn = false) {
     const menus = menuColumns();
     const menu = menus[level];
@@ -545,9 +580,8 @@
           previousRect = node.getBoundingClientRect();
           node.scrollIntoView?.({ block: "center", inline: "nearest" });
           await sleep(180);
-          fullClick(menuItemHitTarget(node));
-          found = true;
-          break;
+          const selected = await componentMenuSelect(node);
+          if (selected.ok) found = true;
         }
       }
       if (!found) {
@@ -568,7 +602,8 @@
         if (allItem) {
           allItem.scrollIntoView?.({ block: "center", inline: "nearest" });
           await sleep(180);
-          fullClick(menuItemHitTarget(allItem));
+          const selected = await componentMenuSelect(allItem);
+          if (!selected.ok) continue;
           await sleep(2000);
           allClicked = true;
           break;
