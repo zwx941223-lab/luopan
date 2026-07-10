@@ -11,7 +11,6 @@
   const sleep = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
   const text = (node) => String(node?.innerText || node?.textContent || "").replace(/\s+/g, " ").trim();
   const compact = (value) => String(value || "").replace(/\s+/g, "").trim();
-  const sameCompactText = (left, right) => compact(left) === compact(right);
   const visible = (node) => {
     if (!node || node.closest?.("#dy-monitor-root")) return false;
     const rect = node.getBoundingClientRect?.();
@@ -390,15 +389,6 @@
     return text(categoryPicker());
   }
 
-  function rememberAppliedCategory(level1, level2, allClicked) {
-    runtime.state.latestAppliedCategory = {
-      level1,
-      level2,
-      allClicked: Boolean(allClicked),
-      appliedAt: Date.now()
-    };
-  }
-
   function menuColumns() {
     return Array.from(document.querySelectorAll(".ecom-cascader-menu,[class*='cascader'][class*='menu'],[role='menu'],[role='listbox']"))
       .filter(visible)
@@ -426,24 +416,11 @@
     return nodes;
   }
 
-  function menuItemHitTarget(node) {
-    if (!node) return null;
-    const rect = node.getBoundingClientRect();
-    const points = [
-      [rect.left + rect.width * 0.5, rect.top + rect.height * 0.5],
-      [rect.left + Math.min(24, rect.width * 0.25), rect.top + rect.height * 0.5],
-      [rect.right - Math.min(24, rect.width * 0.25), rect.top + rect.height * 0.5]
-    ];
-    for (const [x, y] of points) {
-      const hit = document.elementFromPoint?.(Math.round(x), Math.round(y));
-      if (hit && (node === hit || node.contains?.(hit))) return hit;
-    }
-    return node;
-  }
-
   function componentMenuSelect(node) {
-    const target = menuItemHitTarget(node);
-    if (!target) return Promise.resolve({ ok: false, message: "\u672a\u627e\u5230\u83dc\u5355\u9009\u62e9\u76ee\u6807" });
+    const menuItem = node?.matches?.(".ecom-cascader-menu-item,[class*='menu-item'],[role='option'],[role='menuitem']")
+      ? node
+      : node?.querySelector?.(".ecom-cascader-menu-item,[class*='menu-item'],[role='option'],[role='menuitem']") || node;
+    if (!menuItem) return Promise.resolve({ ok: false, message: "\u672a\u627e\u5230\u83dc\u5355\u9009\u62e9\u76ee\u6807" });
     const requestId = `category-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     return new Promise((resolve) => {
       const timeout = window.setTimeout(() => {
@@ -463,7 +440,7 @@
         resolve({ ok: Boolean(result.ok), message: String(result.message || "") });
       };
       window.addEventListener("dy-monitor:component-menu-selected", onResult);
-      target.dispatchEvent(
+      menuItem.dispatchEvent(
         new CustomEvent("dy-monitor:component-menu-select", {
           bubbles: true,
           detail: JSON.stringify({ requestId })
@@ -529,20 +506,11 @@
 
   function categoryLabelMatches(level1, level2) {
     const label = compact(currentCategoryLabel());
-    const latestApplied = runtime.state.latestAppliedCategory || null;
-    const recentlyApplied =
-      latestApplied &&
-      Date.now() - Number(latestApplied.appliedAt || 0) < 20000 &&
-      latestApplied.allClicked &&
-      sameCompactText(latestApplied.level1, level1) &&
-      sameCompactText(latestApplied.level2, level2);
-    if (!label && recentlyApplied) {
-      return true;
-    }
+    if (!label) return false;
     if (isAlcoholSameNameCategory(level1, level2)) {
       return label.includes(compact(`${level1}/${level2}/\u5168\u90E8`));
     }
-    return label.includes(compact(level2)) || label.includes(compact(`${level1}/${level2}`));
+    return label.includes(compact(level1)) && label.includes(compact(level2));
   }
 
   async function waitForCategoryLabel(level1, level2, timeoutMs = 2600) {
@@ -610,8 +578,6 @@
       document.body.click();
       await sleep(1000);
     }
-    rememberAppliedCategory(level1, level2, allClicked);
-
     await sleep(2000);
     const ok = await waitForCategoryLabel(level1, level2, 2400);
     return {

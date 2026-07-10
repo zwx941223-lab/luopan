@@ -1,5 +1,20 @@
 # DY Monitor Project Status
 
+## 2026-07-11 - plugin-v4.5.4 preserves the selected cascader row across the page bridge
+
+- Live `plugin-v4.5.3` evidence confirmed `玩具乐器/乐器及配件` still remained on the default `玩具乐器/玩具` secondary category.
+- Root cause: the content script found the correct menu row but dispatched the page-world request from a hit-tested child, so the bridge could rebuild an inner wrapper instead of the selected cascader row.
+- The bridge request now originates from the already resolved real menu row, preserving its React hover and selection callbacks across the isolated-world boundary.
+- Removed the obsolete hit-tested-child path; visible full category confirmation remains mandatory before capture can continue.
+
+## 2026-07-10 - plugin-v4.5.3 restores the component hover-and-click sequence
+
+- Fixed `plugin-v4.5.2` invoking only React `onClick`, while Compass cascader branch rows use hover/pointer callbacks to populate the next column.
+- The page-world bridge now invokes the menu row's available React pointer-over, pointer-enter, mouse-over, mouse-enter, pointer-move, mouse-move, down, up, and click handlers in manual interaction order, using the live row center for event coordinates.
+- The whole menu row is preferred over child elements, avoiding unrelated icon or text callbacks.
+- Removed the old recent-callback shortcut: selection now succeeds only when the visible Compass category label confirms both the requested first-level and second-level category names.
+- No operating-system mouse input, fixed coordinates, debugger permission, direct ranking API capture, pagination change, or metric parsing change is involved.
+
 ## 2026-07-10 - plugin-v4.5.2 moves category callbacks into the page world
 
 - Fixed `plugin-v4.5.1` reading React menu callbacks from the extension isolated world, where page-owned `__reactProps$` values are not visible.

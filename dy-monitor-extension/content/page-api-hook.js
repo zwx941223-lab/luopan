@@ -8,18 +8,77 @@
   const COMPONENT_SELECT_REQUEST = "dy-monitor:component-menu-select";
   const COMPONENT_SELECT_RESPONSE = "dy-monitor:component-menu-selected";
 
-  function componentEvent(target, currentTarget) {
+  function componentEvent(type, target, currentTarget) {
+    const pressed = type === "pointerdown" || type === "mousedown";
+    const rect = currentTarget.getBoundingClientRect();
+    const clientX = Math.round(rect.left + rect.width / 2);
+    const clientY = Math.round(rect.top + rect.height / 2);
     return {
-      type: "click",
+      type,
       target,
       currentTarget,
-      nativeEvent: { type: "click", target, currentTarget },
+      button: 0,
+      buttons: pressed ? 1 : 0,
+      clientX,
+      clientY,
+      pointerId: 1,
+      pointerType: "mouse",
+      isPrimary: true,
+      nativeEvent: {
+        type,
+        target,
+        currentTarget,
+        button: 0,
+        buttons: pressed ? 1 : 0,
+        clientX,
+        clientY,
+        pointerId: 1,
+        pointerType: "mouse",
+        isPrimary: true
+      },
       preventDefault() {},
       stopPropagation() {},
       persist() {},
       isDefaultPrevented: () => false,
       isPropagationStopped: () => false
     };
+  }
+
+  function reactProps(element) {
+    const propsKey = Object.getOwnPropertyNames(element).find((key) => key.startsWith("__reactProps$"));
+    return propsKey ? element[propsKey] : null;
+  }
+
+  async function invokeComponentInteraction(target, menuItem) {
+    const path = [];
+    let current = target;
+    while (current && (current === menuItem || menuItem.contains(current))) {
+      path.push(current);
+      if (current === menuItem) break;
+      current = current.parentElement;
+    }
+    const candidates = [menuItem, ...path.filter((element) => element !== menuItem).reverse()];
+    const sequence = [
+      ["onPointerOver", "pointerover"],
+      ["onPointerEnter", "pointerenter"],
+      ["onMouseOver", "mouseover"],
+      ["onMouseEnter", "mouseenter"],
+      ["onPointerMove", "pointermove"],
+      ["onMouseMove", "mousemove"],
+      ["onPointerDown", "pointerdown"],
+      ["onMouseDown", "mousedown"],
+      ["onPointerUp", "pointerup"],
+      ["onMouseUp", "mouseup"],
+      ["onClick", "click"]
+    ];
+    let invoked = 0;
+    for (const [handlerName, eventType] of sequence) {
+      const owner = candidates.find((element) => typeof reactProps(element)?.[handlerName] === "function");
+      if (!owner) continue;
+      await Promise.resolve(reactProps(owner)[handlerName](componentEvent(eventType, target, owner)));
+      invoked += 1;
+    }
+    return invoked;
   }
 
   function emitComponentSelectResult(requestId, ok, message = "") {
@@ -47,25 +106,12 @@
       return;
     }
 
-    const candidates = [];
-    let current = target;
-    while (current && (current === menuItem || menuItem.contains(current))) {
-      candidates.push(current);
-      if (current === menuItem) break;
-      current = current.parentElement;
-    }
-    const owner = candidates.find((element) => {
-      const propsKey = Object.getOwnPropertyNames(element).find((key) => key.startsWith("__reactProps$"));
-      return typeof (propsKey ? element[propsKey]?.onClick : null) === "function";
-    });
-    if (!owner) {
-      emitComponentSelectResult(requestId, false, "Category component callback is unavailable");
-      return;
-    }
-
-    const propsKey = Object.getOwnPropertyNames(owner).find((key) => key.startsWith("__reactProps$"));
-    Promise.resolve(owner[propsKey].onClick(componentEvent(target, owner)))
-      .then(() => emitComponentSelectResult(requestId, true))
+    invokeComponentInteraction(target, menuItem)
+      .then((invoked) => emitComponentSelectResult(
+        requestId,
+        invoked > 0,
+        invoked > 0 ? "" : "Category component interaction callbacks are unavailable"
+      ))
       .catch((error) => emitComponentSelectResult(requestId, false, error?.message || "Category callback failed"));
   });
 
