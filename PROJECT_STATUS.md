@@ -1,5 +1,13 @@
 # DY Monitor Project Status
 
+## 2026-07-10 - plugin-v4.4.7 verifies secondary cascader activation
+
+- Fixed the visible cascader staying on the first secondary category after attempting to select the second option.
+- Category menu items now receive one real click sequence after being scrolled into view, avoiding the previous duplicate synthetic/native click behavior.
+- The second-level selection must now show an active state, change the downstream third column, or update the visible category label before the flow can click `全部`.
+- The `全部` click is also verified against the target category label instead of being treated as successful unconditionally.
+- Kept API fallback, 20-page capture, metric-array merging, and the empty-metric upload guard unchanged.
+
 ## 2026-07-10 - plugin-v4.4.6 switches the visible secondary category first
 
 - Fixed second-level categories after the first option not visibly switching on the Compass page.
